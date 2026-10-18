@@ -17,7 +17,7 @@ RELEASE_FILES = (
     "samples/orders.csv", "samples/payments.csv", "scripts/build_release.py",
     "tests/__init__.py", "tests/test_product.py", "tests/test_reliability.py", "tests/test_import_management.py",
     "tests/fixtures/schema_v1.sql", "docs/PRODUCT.md", "docs/FEEDBACK_TEMPLATE.md",
-    "docs/CHANGELOG.md", ".github/workflows/test.yml",
+    "docs/CHANGELOG.md", "docs/PROJECT_PLAN.md", ".github/workflows/test.yml",
 )
 
 

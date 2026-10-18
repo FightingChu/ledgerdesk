@@ -128,4 +128,6 @@ docs/                      产品边界、版本记录与真实反馈收集模�
 
 仓库按实际工程需求组织，不为凑文件数量拆分代码。未来用于命题前，需要真实交付、维护问题和脱敏复现资料，并按届时规则确认来源资格。
 
+产品扩展路线、架构拆分、版本目标和文件规模预算见 [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md)。文件数量服从真实功能、测试和文档，不单独追求数字。
+
 源码发布包通过 `python scripts/build_release.py` 生成。公开仓库使用 MIT License，并通过 GitHub Actions 在 Python 3.10、3.12 上运行测试和发布包校验。版本统一读取 `ledgerdesk/__init__.py`；页面和 CLI 使用相同版本定义，包元数据采用动态版本。发布脚本仅打包显式清单中的文件，不递归收集 CSV 或临时脚本；新增发布文件需要更新清单。ZIP 默认使用构建时的 UTC 时间，可设置 `SOURCE_DATE_EPOCH` 以复现同一时间戳。
