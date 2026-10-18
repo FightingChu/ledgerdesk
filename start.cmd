@@ -1,0 +1,17 @@
+@echo off
+setlocal
+cd /d "%~dp0"
+where py >nul 2>nul
+if errorlevel 1 (
+    where python >nul 2>nul
+    if errorlevel 1 (
+        echo Python 3.10 or newer is required. Install Python before starting LedgerDesk.
+        pause
+        exit /b 1
+    )
+    python -m ledgerdesk --open
+) else (
+    py -3 -m ledgerdesk --open
+)
+if errorlevel 1 pause
+endlocal

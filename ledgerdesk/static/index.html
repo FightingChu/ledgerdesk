@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>LedgerDesk · 账目核查工作台</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="LedgerDesk 首页"><span class="brand-symbol">L<span>·</span></span><span>LedgerDesk<small>账目核查工作台</small></span></a>
+    <div class="workspace-label">LOCAL WORKSPACE</div>
+    <button class="nav-item active" id="home-nav"><span>▦</span> 核查批次 <span class="nav-count" id="batch-count">0</span></button>
+    <div class="sidebar-description">从账单到差异，<br>每一笔都有据可查。</div>
+    <div class="sidebar-bottom"><span class="status-dot"></span> 数据保存在本机<small>v0.1 · 个人验证版</small></div>
+  </aside>
+  <div class="main-shell">
+    <header class="topbar"><span>工作空间 <span class="slash">/</span> <span id="breadcrumb">核查批次</span></span><span class="local-pill"><span class="status-dot"></span>本地运行 · 人民币 CNY</span></header>
+    <main id="main" tabindex="-1">
+      <section id="home-view">
+        <div class="page-heading"><div><div class="eyebrow">RECONCILIATION</div><h1>把每一笔账，核清楚。</h1><p>导入业务单与支付流水，定位金额、退款和重复记录中的差异。</p></div><button class="button primary" id="new-batch">＋ 新建核查批次</button></div>
+        <div class="welcome-card"><div class="welcome-copy"><span class="small-label">第一次使用？</span><h2>用一组样例，走完核查流程。</h2><p>内含金额差异、退款、单边缺失和重复流水。<br>样例为合成数据，创建后会明确标记。</p><button class="button dark" id="create-demo">创建样例批次 <span>↗</span></button></div><div class="flow-preview" aria-hidden="true"><div class="flow-step"><span class="flow-number">01</span><span>导入两份数据</span><span class="flow-mark">✓</span></div><div class="flow-line"></div><div class="flow-step"><span class="flow-number">02</span><span>定位核查差异</span><span class="mini-badge">5 项</span></div><div class="flow-line"></div><div class="flow-step"><span class="flow-number">03</span><span>备注与导出</span><span class="flow-mark">↗</span></div></div></div>
+        <div class="section-title"><h2>核查批次 <span id="list-count" class="muted-count">0</span></h2><span class="muted">独立批次 · 源文件指纹 · 处理留痕</span></div>
+        <div class="panel"><div class="table-scroll"><table class="batch-table"><thead><tr><th>批次名称</th><th>数据性质</th><th>已导入文件</th><th>创建时间</th><th></th></tr></thead><tbody id="batch-list"></tbody></table></div><div id="empty-batches" class="empty-state"><span class="empty-icon">▤</span><h3>还没有核查批次</h3><p>新建批次导入自己的文件，或先创建样例熟悉操作。</p></div></div>
+        <div class="product-note"><span>ⓘ</span><p>当前为个人验证版，无真实客户或生产使用记录。仅支持符合模板的标准 CSV；微信、支付宝原始账单需先转换。<br>本工具核对预计净到账与收款减退款，不含手续费、分账、汇兑和结算周期判断。</p></div>
+      </section>
+      <section id="detail-view" hidden>
+        <button class="text-button back-button" id="back-home">← 全部批次</button>
+        <div class="page-heading detail-heading"><div><div class="eyebrow" id="detail-label">RECONCILIATION BATCH</div><h1 id="batch-title"></h1><p id="batch-description"></p></div><div class="heading-actions"><a class="button secondary" id="export-link" hidden>↓ 导出核查报告</a><button class="button primary" id="reconcile">执行核对 ↗</button></div></div>
+        <div id="sample-notice" class="notice" hidden>合成样例批次 · 结果用于体验流程，不代表真实客户账单。</div>
+        <div id="stale-notice" class="notice warning" hidden>源数据已追加，当前显示上一次核对结果。请重新执行核对；更新前暂不可备注或导出。</div>
+        <div class="import-grid"><article class="panel import-card"><div class="import-icon">▤</div><div><h3>业务单</h3><p>订单号、预计净到账（元）、渠道</p><div class="import-files" id="order-files"></div></div><button class="button secondary small import-trigger" data-side="orders">导入 CSV</button></article><article class="panel import-card"><div class="import-icon">⇄</div><div><h3>支付账单</h3><p>订单号、流水号、金额、类型、渠道</p><div class="import-files" id="payment-files"></div></div><button class="button secondary small import-trigger" data-side="payments">导入 CSV</button></article></div>
+        <div class="metric-grid" id="metrics"></div>
+        <div class="section-title results-heading"><h2>核查明细 <span class="muted-count" id="results-count">0</span></h2><span id="run-time" class="muted"></span></div>
+        <div class="panel"><div class="results-toolbar"><div class="segmented" role="group" aria-label="核查结果筛选"><button class="selected" data-filter="issues">待核查差异</button><button data-filter="all">全部记录</button><button data-filter="matched">金额一致</button></div><label class="search-box"><span>⌕</span><input type="search" id="search" placeholder="搜索订单号或渠道" aria-label="搜索订单号或渠道"></label></div><div class="table-scroll"><table class="results-table"><thead><tr><th>订单号 / 渠道</th><th class="number">预计净到账</th><th class="number">账单净额</th><th class="number">差额</th><th>核查结果</th><th>处理状态</th><th></th></tr></thead><tbody id="results-list"></tbody></table></div><div id="empty-results" class="empty-state"></div><div class="table-foot">金额单位：人民币元 · 差额 = 账单净额 − 预计净到账 · 重复行会计入原始合计，须先核查</div></div>
+        <details class="audit-panel"><summary>批次操作记录 <span class="muted">最近 50 条</span></summary><div id="audit-list"></div></details>
+      </section>
+    </main>
+    <footer><span>LedgerDesk / LOCAL FIRST</span><span>文件留在本机，核查过程有记录。</span></footer>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <dialog id="new-dialog"><form id="batch-form"><div class="dialog-heading"><div><span class="eyebrow">NEW BATCH</span><h2>新建核查批次</h2></div><button type="button" class="icon-button close-dialog" aria-label="关闭">×</button></div><p class="muted">一个批次对应一次独立核查，例如某月、某门店或某个渠道。</p><label class="field">批次名称<input name="name" maxlength="80" placeholder="例如：十月门店订单核查" required></label><label class="field">说明 <span class="optional">选填</span><textarea name="description" maxlength="500" rows="3" placeholder="记录这批数据的范围与来源"></textarea></label><div class="dialog-actions"><button type="button" class="button secondary close-dialog">取消</button><button class="button primary" type="submit">创建批次</button></div></form></dialog>
+  <dialog id="import-dialog" class="wide-dialog"><form id="import-form"><div class="dialog-heading"><div><span class="eyebrow">IMPORT DATA</span><h2 id="import-title">导入 CSV</h2></div><button type="button" class="icon-button close-dialog" aria-label="关闭">×</button></div><p class="muted" id="import-help"></p><div class="file-drop"><label for="csv-file">选择标准 CSV 文件</label><input type="file" id="csv-file" accept=".csv,text/csv"><small>UTF-8 / GB18030 · 单文件最多 5 MiB、10000 行 · 人民币元</small></div><a id="template-link" class="template-link" download>↓ 下载格式样例</a><div id="mapping-area" hidden><div class="section-title"><h3>确认字段对应关系</h3><span id="preview-count" class="muted"></span></div><div id="mapping-fields" class="mapping-grid"></div><div class="table-scroll preview-scroll"><table><thead id="preview-head"></thead><tbody id="preview-body"></tbody></table></div><p class="hint">仅展示前 5 行。确认后校验整份文件；存在无效行时整份不导入。</p></div><div id="import-errors" class="form-errors" role="alert" hidden></div><div class="dialog-actions"><button type="button" class="button secondary close-dialog">取消</button><button class="button primary" type="submit" id="confirm-import" disabled>确认导入</button></div></form></dialog>
+  <dialog id="case-dialog" class="wide-dialog"><form id="review-form"><div class="dialog-heading"><div><span class="eyebrow">CASE DETAILS</span><h2 id="case-title"></h2></div><button type="button" class="icon-button close-dialog" aria-label="关闭">×</button></div><div id="case-summary"></div><h3 class="source-heading">对应源数据</h3><div class="table-scroll"><table><thead><tr><th>来源 / 文件</th><th>CSV 行号</th><th>流水号</th><th>类型</th><th class="number">金额</th></tr></thead><tbody id="case-rows"></tbody></table></div><div id="review-controls"><label class="field">处理状态<select id="review-status"><option value="pending">待处理</option><option value="in_progress">处理中</option><option value="resolved">已处理</option></select></label><label class="field">处理备注<textarea id="review-note" rows="3" maxlength="1000" placeholder="填写差异原因、核实结果或处理依据；已处理时必填"></textarea></label><p class="hint">人工状态只记录处理进度，不会把金额差异变成一致。源数据证据变化后重新待处理。</p></div><div class="dialog-actions"><button type="button" class="button secondary close-dialog">关闭</button><button class="button primary" type="submit" id="save-review">保存处理记录</button></div></form></dialog>
+</body>
+</html>

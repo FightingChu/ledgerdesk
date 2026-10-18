@@ -1,0 +1,8 @@
+order_id,amount,channel
+O1001,128.00,wechat
+O1002,80.00,alipay
+O1003,68.00,wechat
+O1004,200.00,wechat
+O1005,50.00,alipay
+O1005,50.00,alipay
+O1006,30.00,wechat

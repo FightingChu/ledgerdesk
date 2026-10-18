@@ -1,0 +1,9 @@
+[project]
+name = "ledgerdesk"
+version = "0.1.0"
+description = "Local CSV reconciliation for expected net receipts and payment events"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.ruff]
+line-length = 110

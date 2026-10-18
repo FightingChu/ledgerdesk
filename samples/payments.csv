@@ -1,0 +1,9 @@
+order_id,transaction_id,amount,event_type,channel
+O1001,P001,128.00,sale,wechat
+O1002,P002,100.00,sale,alipay
+O1002,R002,20.00,refund,alipay
+O1003,P003,66.00,sale,wechat
+O1005,P005,50.00,sale,alipay
+O1006,P006,30.00,sale,wechat
+O1006,P006,30.00,sale,wechat
+O1007,P007,99.00,sale,alipay
