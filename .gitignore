@@ -11,3 +11,5 @@ dist/
 *.sqlite3-shm
 *.log
 .DS_Store
+/HANDOFF.md
+/docs/VALIDATION.md

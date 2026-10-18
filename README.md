@@ -8,7 +8,7 @@ LedgerDesk 将业务单中的预计净到账，与支付账单中的收款减退
 
 Windows 双击当前目录的 `start.cmd`。已安装 Python 3.10 以上即可，不需要安装第三方包、数据库服务、Node.js、域名或服务器。启动后会打开浏览器；保持终端窗口运行。已有同端口且使用相同数据目录的 LedgerDesk 时，再次双击会打开现有页面。不同数据目录会提示冲突，请换端口；0.1.0 旧服务需先停止后再启动。
 
-也可以在 PowerShell 中执行：
+也可以在项目目录的 PowerShell 中执行：
 
 ```powershell
 python -m ledgerdesk --open
