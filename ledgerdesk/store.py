@@ -1,6 +1,6 @@
 """SQLite persistence and deterministic reconciliation rules."""
 from collections import Counter, defaultdict
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -9,6 +9,8 @@ import sqlite3
 import uuid
 
 from .imports import InputError, money, parse
+
+SCHEMA_VERSION = 2
 
 LABELS = {"matched": "金额一致", "amount_mismatch": "金额不一致", "order_only": "仅业务单",
           "payment_only": "仅支付账单", "duplicate_order": "重复业务单", "duplicate_transaction": "重复流水"}
@@ -38,9 +40,39 @@ class Store:
     def __init__(self, path):
         self.path = Path(path).resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # Inspect existing files read-only before changing schema or journal settings.
+        if self.path.exists():
+            with closing(sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True)) as con:
+                self._check_version(con)
+        with self.connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            version = self._check_version(con)
+            if version == 0:
+                self._create_v1(con)
+            elif version < SCHEMA_VERSION:
+                self.backup(self.path.with_name(
+                    self.path.name + f".pre-v{version}-to-v{SCHEMA_VERSION}-{identifier()}.sqlite3"))
+            for previous in range(version or 1, SCHEMA_VERSION):
+                self._migrate(con, previous)
+            if version < SCHEMA_VERSION:
+                con.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         with self.connect() as con:
             con.execute("PRAGMA journal_mode=WAL")
-            con.executescript("""
+
+    @staticmethod
+    def _check_version(con):
+        version = con.execute("PRAGMA user_version").fetchone()[0]
+        if version > SCHEMA_VERSION:
+            raise InputError(f"数据库版本 {version} 高于当前支持的 {SCHEMA_VERSION}，请使用新版 LedgerDesk")
+        if version == 0 and con.execute(
+                "SELECT 1 FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' LIMIT 1").fetchone():
+            raise InputError("数据库未标记版本且包含已有表，拒绝自动接管；请使用独立数据目录")
+        return version
+
+    @staticmethod
+    def _create_v1(con):
+        # Execute DDL individually: executescript would commit the outer transaction.
+        schema = """
                 CREATE TABLE IF NOT EXISTS batches (
                     id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL,
                     is_sample INTEGER NOT NULL, created_at TEXT NOT NULL);
@@ -69,8 +101,19 @@ class Store:
                 CREATE TABLE IF NOT EXISTS audit (
                     id INTEGER PRIMARY KEY, batch_id TEXT NOT NULL REFERENCES batches(id),
                     action TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL);
-                PRAGMA user_version=1;
-            """)
+
+            """
+        for statement in schema.split(";"):
+            if statement.strip():
+                con.execute(statement)
+
+    def _migrate(self, con, version):
+        if version == 1:
+            # Original CSV bytes / ignored columns were never stored in 0.1.0.
+            # Preserve history without claiming its currency was revalidated.
+            con.execute("ALTER TABLE imports ADD COLUMN currency_policy TEXT NOT NULL DEFAULT 'legacy_unverified'")
+        else:
+            raise InputError(f"没有数据库版本 {version} 的升级路径")
 
     @contextmanager
     def connect(self):
@@ -128,9 +171,9 @@ class Store:
                     raise InputError("同一文件已按其他映射导入；请新建批次修正映射")
                 return {"id": previous["id"], "row_count": previous["row_count"], "duplicate": True}
             import_id = identifier()
-            con.execute("INSERT INTO imports VALUES(?,?,?,?,?,?,?,?)",
+            con.execute("INSERT INTO imports(id,batch_id,side,filename,file_sha256,mapping,row_count,created_at,currency_policy) VALUES(?,?,?,?,?,?,?,?,?)",
                         (import_id, batch_id, side, filename, file_hash,
-                         json.dumps(mapping, ensure_ascii=False), len(records), now()))
+                         json.dumps(mapping, ensure_ascii=False), len(records), now(), records[0]["currency_policy"]))
             con.executemany("INSERT INTO entries(import_id,line,channel,order_id,transaction_id,kind,amount_cents) VALUES(?,?,?,?,?,?,?)",
                 [(import_id, row["line"], row["channel"], row["order_id"], row["transaction_id"],
                   row["kind"], row["amount_cents"]) for row in records])
@@ -210,7 +253,7 @@ class Store:
     def detail(self, batch_id):
         with self.connect() as con:
             batch = self.batch(con, batch_id)
-            files = [dict(row) for row in con.execute("SELECT id,side,filename,file_sha256,row_count,created_at FROM imports WHERE batch_id=? ORDER BY rowid", (batch_id,))]
+            files = [dict(row) for row in con.execute("SELECT id,side,filename,file_sha256,row_count,created_at,currency_policy FROM imports WHERE batch_id=? ORDER BY rowid", (batch_id,))]
             latest = con.execute("SELECT * FROM runs WHERE batch_id=? ORDER BY rowid DESC LIMIT 1", (batch_id,)).fetchone()
             results = []
             if latest:

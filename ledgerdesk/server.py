@@ -1,12 +1,15 @@
 """Local-only HTTP interface. No external service or runtime packages required."""
 import base64
 import csv
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
 import logging
+import os
 from pathlib import Path
 import secrets
+import socket
 from urllib.parse import urlsplit
 
 from . import __version__
@@ -17,6 +20,21 @@ ROOT = Path(__file__).resolve().parent.parent
 ASSETS = ROOT / "ledgerdesk" / "static"
 MAX_REQUEST = 8 * 1024 * 1024
 LOGGER = logging.getLogger("ledgerdesk")
+
+
+def instance_identity(db_path):
+    path = os.path.normcase(str(Path(db_path).resolve()))
+    return {"application_id": "ledgerdesk", "instance_protocol": 1,
+            "workspace_id": hashlib.sha256(path.encode("utf-8")).hexdigest()}
+
+
+class LocalHTTPServer(ThreadingHTTPServer):
+    def server_bind(self):
+        # Windows SO_REUSEADDR permits a second listener on an occupied port.
+        if os.name == "nt":
+            self.allow_reuse_address = False
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 
 def safe_cell(value):
@@ -56,8 +74,8 @@ def create_demo(store):
 
 
 def make_server(db_path, port=8765):
-    store = Store(db_path)
     token = secrets.token_urlsafe(32)
+    identity = instance_identity(db_path)
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "LedgerDesk/" + __version__
@@ -120,7 +138,7 @@ def make_server(db_path, port=8765):
             path = urlsplit(self.path).path
             try:
                 if path == "/api/bootstrap":
-                    self.respond(200, {"version": __version__, "token": token,
+                    self.respond(200, {**identity, "version": __version__, "token": token,
                         "batches": store.list_batches(), "reason_labels": LABELS, "review_labels": REVIEW_LABELS})
                 elif path == "/api/batches":
                     self.respond(200, {"batches": store.list_batches()})
@@ -195,6 +213,12 @@ def make_server(db_path, port=8765):
                 LOGGER.exception("Write failed")
                 self.respond(500, {"error": "操作失败，数据未提交；请检查终端日志"})
 
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    # Reserve the port before opening or migrating the requested workspace.
+    server = LocalHTTPServer(("127.0.0.1", port), Handler)
+    try:
+        store = Store(db_path)
+    except Exception:
+        server.server_close()
+        raise
     server.daemon_threads = True
     return server

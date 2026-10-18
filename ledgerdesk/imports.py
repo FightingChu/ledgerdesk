@@ -10,6 +10,8 @@ import re
 MAX_BYTES = 5 * 1024 * 1024
 MAX_ROWS = 10000
 MAX_AMOUNT_CENTS = 10**12
+CURRENCY_HEADERS = {"currency", "currency_code", "币种", "货币", "货币种类"}
+CNY_VALUES = {"CNY", "RMB", "人民币"}
 FIELDS = {
     "orders": ("order_id", "amount", "channel"),
     "payments": ("order_id", "transaction_id", "amount", "event_type", "channel"),
@@ -97,6 +99,32 @@ def read_csv(text):
     return headers, rows
 
 
+def currency_columns(headers):
+    return [header for header in headers if header.casefold() in CURRENCY_HEADERS]
+
+
+def currency_error(columns, row):
+    values = [row[column].strip().upper() for column in columns]
+    if any(not value for value in values):
+        return "币种列不可空白；仅在没有币种列时默认人民币"
+    normalized = {"CNY" if value in CNY_VALUES else value for value in values}
+    if len(normalized) > 1:
+        return "同一行的多个币种列相互冲突"
+    if normalized and normalized != {"CNY"}:
+        return "首版仅支持人民币 CNY / RMB / 人民币，请勿混入其他币种"
+    return None
+
+
+def currency_summary(headers, rows):
+    columns = currency_columns(headers)
+    values = sorted({row[column].strip() for _, row in rows for column in columns})
+    errors = [{"line": line, "message": message} for line, row in rows
+              if (message := currency_error(columns, row))]
+    return {"columns": columns, "values": values[:20], "value_count": len(values), "defaulted": not columns,
+            "effective": "CNY" if not errors else None, "valid": not errors,
+            "error_count": len(errors), "errors": errors[:30]}
+
+
 def preview(side, content):
     if not isinstance(side, str) or side not in FIELDS:
         raise InputError("未知数据类型")
@@ -109,7 +137,7 @@ def preview(side, content):
                                if name.casefold() in normalized), "")
     return {"headers": headers, "rows": [row for _, row in rows[:5]],
             "row_count": len(rows), "mapping": mapping,
-            "file_sha256": hashlib.sha256(raw).hexdigest()}
+            "file_sha256": hashlib.sha256(raw).hexdigest(), "currency": currency_summary(headers, rows)}
 
 
 def parse(side, content, mapping):
@@ -121,11 +149,12 @@ def parse(side, content, mapping):
     if any(name not in headers for name in selected) or len(set(selected)) != len(selected):
         raise InputError("请为每个字段选择不同的 CSV 列")
     parsed, errors = [], []
+    columns = currency_columns(headers)
     for line, row in rows:
         try:
-            for column in ("currency", "币种"):
-                if column in row and row[column].strip().upper() not in ("CNY", "RMB", "人民币"):
-                    raise InputError("首版仅支持人民币，请勿混入其他币种")
+            error = currency_error(columns, row)
+            if error:
+                raise InputError(error)
             data = {field: row[mapping[field]].strip() for field in FIELDS[side]}
             for field in ("order_id", "channel", "transaction_id"):
                 if field in data and (not data[field] or len(data[field]) > 128 or
@@ -142,7 +171,8 @@ def parse(side, content, mapping):
                 kind = types[label]
             parsed.append({"line": line, "order_id": data["order_id"],
                            "channel": data["channel"], "amount_cents": amount,
-                           "transaction_id": data.get("transaction_id", ""), "kind": kind})
+                           "transaction_id": data.get("transaction_id", ""), "kind": kind,
+                           "currency_policy": "explicit_cny" if columns else "default_cny"})
         except InputError as exc:
             errors.append({"line": line, "message": str(exc)})
     if errors:

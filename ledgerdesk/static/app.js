@@ -47,6 +47,7 @@ async function openBatch(id, reset = true) {
   $("#batch-description").textContent = data.batch.description || "业务单与支付流水独立核对";
   $("#sample-notice").hidden = !data.batch.is_sample;
   $("#stale-notice").hidden = !data.stale;
+  $("#legacy-currency-notice").hidden = !data.imports.some((item) => item.currency_policy === "legacy_unverified");
   for (const [side, target] of [["orders", "#order-files"], ["payments", "#payment-files"]]) {
     const files = data.imports.filter((item) => item.side === side);
     $(target).innerHTML = files.length ? files.map((item) => `<div class="file-entry" title="${escapeHTML(item.file_sha256)}">✓ ${escapeHTML(item.filename)} · ${item.row_count} 行</div>`).join("") : "尚未导入文件";
@@ -99,7 +100,15 @@ async function previewFile() {
   $("#preview-count").textContent=`${preview.row_count} 行数据`;
   $("#preview-head").innerHTML=`<tr>${preview.headers.map((header)=>`<th>${escapeHTML(header)}</th>`).join("")}</tr>`;
   $("#preview-body").innerHTML=preview.rows.map((row)=>`<tr>${preview.headers.map((header)=>`<td>${escapeHTML(row[header])}</td>`).join("")}</tr>`).join("");
-  $("#mapping-area").hidden=false; $("#confirm-import").disabled=false;
+  const currency=preview.currency;
+  $("#currency-summary").textContent=currency.defaulted ? "未检测到币种列：按工具约定默认人民币 CNY，不做汇兑。" : `币种列：${currency.columns.join("、")}；文件中的值：${currency.values.map((value)=>value||"（空白）").join("、")}${currency.value_count>currency.values.length?"（仅列出前 20 种值）":""}。${currency.valid?"统一按人民币 CNY 核对，不做汇兑。":"含无效币种，禁止导入。"}`;
+  $("#currency-summary").classList.toggle("warning",!currency.valid);
+  if (!currency.valid) {
+    state.upload=null;
+    $("#import-errors").textContent=`发现 ${currency.error_count} 行币种错误，整份文件不可导入。\n`+currency.errors.map((item)=>`第 ${item.line} 行：${item.message}`).join("\n");
+    $("#import-errors").hidden=false;
+  }
+  $("#mapping-area").hidden=false; $("#confirm-import").disabled=!currency.valid;
 }
 function openCase(key) {
   const row=state.batch.results.find((item)=>item.case_key===key); if(!row)return;
@@ -127,4 +136,4 @@ $$("[data-filter]").forEach((button)=>button.addEventListener("click",()=>{state
 $("#search").addEventListener("input",renderResults);
 $("#results-list").addEventListener("click",(event)=>{const button=event.target.closest("[data-case]");if(button)openCase(button.dataset.case);});
 $("#review-form").addEventListener("submit",(event)=>{event.preventDefault();action(event.submitter,async()=>{const row=state.currentCase;await api(`/api/batches/${state.batch.batch.id}/review`,{case_key:row.case_key,evidence_sha256:row.evidence_sha256,status:$("#review-status").value,note:$("#review-note").value});$("#case-dialog").close();await openBatch(state.batch.batch.id,false);notify("处理记录已保存");});});
-api("/api/bootstrap").then(async(data)=>{state.token=data.token;await refreshList();}).catch((error)=>notify("本地服务连接失败："+error.message,true));
+api("/api/bootstrap").then(async(data)=>{state.token=data.token;$("#app-version").textContent=`v${data.version}`;await refreshList();}).catch((error)=>notify("本地服务连接失败："+error.message,true));
