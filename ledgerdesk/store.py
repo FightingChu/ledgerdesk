@@ -10,8 +10,8 @@ import uuid
 
 from .imports import InputError, money, parse
 
-SCHEMA_VERSION = 3
-RECONCILIATION_VERSION = 2
+SCHEMA_VERSION = 4
+RECONCILIATION_VERSION = 3
 
 LABELS = {"matched": "金额一致", "amount_mismatch": "金额不一致", "order_only": "仅业务单",
           "payment_only": "仅支付账单", "duplicate_order": "重复业务单", "duplicate_transaction": "重复流水"}
@@ -135,6 +135,13 @@ class Store:
             con.execute("ALTER TABLE imports_new RENAME TO imports")
             con.execute("CREATE UNIQUE INDEX active_import_hash ON imports(batch_id,side,file_sha256) WHERE is_active=1")
             con.execute("ALTER TABLE batches ADD COLUMN input_revision INTEGER NOT NULL DEFAULT 0")
+        elif version == 3:
+            con.execute("ALTER TABLE imports ADD COLUMN channel_aliases TEXT NOT NULL DEFAULT '{}'")
+            con.execute("""CREATE TABLE mapping_templates (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, side TEXT NOT NULL,
+                mapping TEXT NOT NULL, channel_aliases TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                UNIQUE(name, side))""")
         else:
             raise InputError(f"没有数据库版本 {version} 的升级路径")
 
@@ -181,9 +188,59 @@ class Store:
             """)]
 
     @staticmethod
+    def normalize_aliases(aliases):
+        if aliases is None:
+            return {}
+        if not isinstance(aliases, dict) or len(aliases) > 100:
+            raise InputError("渠道别名须为不超过 100 项的 JSON 对象")
+        normalized = {}
+        for source, target in aliases.items():
+            if not isinstance(source, str) or not isinstance(target, str):
+                raise InputError("渠道别名的键和值都必须是文本")
+            source, target = source.strip(), target.strip()
+            if not source or not target or len(source) > 128 or len(target) > 128:
+                raise InputError("渠道别名的键和值须为 1～128 个字符")
+            if any(ord(char) < 32 for char in source + target):
+                raise InputError("渠道别名不能包含控制字符")
+            normalized[source] = target
+        return normalized
+
+    def list_templates(self, side=None):
+        with self.connect() as con:
+            query, args = "SELECT * FROM mapping_templates", ()
+            if side:
+                query += " WHERE side=?"
+                args = (side,)
+            query += " ORDER BY updated_at DESC, name"
+            return [dict(row) for row in con.execute(query, args)]
+
+    def save_template(self, name, side, mapping, channel_aliases=None):
+        name = require_text(name, "模板名称", 80)
+        if side not in ("orders", "payments") or not isinstance(mapping, dict):
+            raise InputError("模板数据无效")
+        aliases = self.normalize_aliases(channel_aliases)
+        timestamp = now()
+        with self.connect() as con:
+            template_id = identifier()
+            con.execute("""INSERT INTO mapping_templates
+                (id,name,side,mapping,channel_aliases,created_at,updated_at)
+                VALUES(?,?,?,?,?,?,?)
+                ON CONFLICT(name,side) DO UPDATE SET mapping=excluded.mapping,
+                channel_aliases=excluded.channel_aliases,updated_at=excluded.updated_at""",
+                (template_id, name, side, json.dumps(mapping, ensure_ascii=False, sort_keys=True),
+                 json.dumps(aliases, ensure_ascii=False, sort_keys=True), timestamp, timestamp))
+            return dict(con.execute("SELECT * FROM mapping_templates WHERE name=? AND side=?", (name, side)).fetchone())
+
+    def delete_template(self, template_id):
+        with self.connect() as con:
+            if con.execute("DELETE FROM mapping_templates WHERE id=?", (template_id,)).rowcount != 1:
+                raise InputError("映射模板不存在")
+        return {"deleted": True, "id": template_id}
+
+    @staticmethod
     def source_fingerprint(con, batch_id):
         revision = Store.batch(con, batch_id)["input_revision"]
-        files = list(con.execute("SELECT id,file_sha256,mapping FROM imports WHERE batch_id=? AND is_active=1 ORDER BY id", (batch_id,)))
+        files = list(con.execute("SELECT id,file_sha256,mapping,channel_aliases FROM imports WHERE batch_id=? AND is_active=1 ORDER BY id", (batch_id,)))
         return digest({"engine": RECONCILIATION_VERSION, "revision": revision,
                        "files": [tuple(row) for row in files]})
 
@@ -214,9 +271,12 @@ class Store:
                        "reason": reason, "backup": backup})
         return {"revoked": True, "import_id": import_id}
 
-    def import_file(self, batch_id, side, filename, content, mapping, replace_id=None, reason=""):
+    def import_file(self, batch_id, side, filename, content, mapping, replace_id=None, reason="", channel_aliases=None):
         filename = require_text(filename, "文件名", 200)
         file_hash, records = parse(side, content, mapping)
+        aliases = self.normalize_aliases(channel_aliases)
+        for record in records:
+            record["channel"] = aliases.get(record["channel"], record["channel"])
         if replace_id is not None:
             replace_id = require_text(replace_id, "被替换文件", 64)
             reason = require_text(reason, "替换原因", 500)
@@ -241,9 +301,10 @@ class Store:
                 con.execute("UPDATE imports SET is_active=0,revoked_at=?,revoked_reason=? WHERE id=?",
                             (now(), reason, replace_id))
             import_id = identifier()
-            con.execute("INSERT INTO imports(id,batch_id,side,filename,file_sha256,mapping,row_count,created_at,currency_policy,replaces_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            con.execute("INSERT INTO imports(id,batch_id,side,filename,file_sha256,mapping,row_count,created_at,currency_policy,replaces_id,channel_aliases) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                         (import_id, batch_id, side, filename, file_hash,
-                         json.dumps(mapping, ensure_ascii=False), len(records), now(), records[0]["currency_policy"], replace_id))
+                         json.dumps(mapping, ensure_ascii=False), len(records), now(), records[0]["currency_policy"], replace_id,
+                         json.dumps(aliases, ensure_ascii=False, sort_keys=True)))
             con.executemany("INSERT INTO entries(import_id,line,channel,order_id,transaction_id,kind,amount_cents) VALUES(?,?,?,?,?,?,?)",
                 [(import_id, row["line"], row["channel"], row["order_id"], row["transaction_id"],
                   row["kind"], row["amount_cents"]) for row in records])
@@ -351,7 +412,7 @@ class Store:
         with self.connect() as con:
             con.execute("BEGIN")
             batch = self.batch(con, batch_id)
-            files = [dict(row) for row in con.execute("SELECT id,side,filename,file_sha256,row_count,created_at,currency_policy,is_active,revoked_at,revoked_reason,replaces_id FROM imports WHERE batch_id=? ORDER BY rowid", (batch_id,))]
+            files = [dict(row) for row in con.execute("SELECT id,side,filename,file_sha256,row_count,created_at,currency_policy,is_active,revoked_at,revoked_reason,replaces_id,channel_aliases FROM imports WHERE batch_id=? ORDER BY rowid", (batch_id,))]
             latest = con.execute("SELECT * FROM runs WHERE batch_id=? ORDER BY rowid DESC LIMIT 1", (batch_id,)).fetchone()
             results = []
             if latest:
@@ -369,6 +430,32 @@ class Store:
             return {"batch": batch, "imports": files, "run": ({"id": latest["id"], "created_at": latest["created_at"],
                     "summary": json.loads(latest["summary"])} if latest else None),
                     "results": results, "stale": stale, "audit": audit}
+
+    def history(self, batch_id, limit=30):
+        with self.connect() as con:
+            self.batch(con, batch_id)
+            return [dict(row) for row in con.execute(
+                "SELECT id,created_at,summary,input_sha256 FROM runs WHERE batch_id=? ORDER BY rowid DESC LIMIT ?",
+                (batch_id, max(1, min(int(limit), 100))))]
+
+    def compare_runs(self, batch_id, older_id, newer_id):
+        with self.connect() as con:
+            self.batch(con, batch_id)
+            def load(run_id):
+                return {row["case_key"]: json.loads(row["payload"]) for row in con.execute(
+                    "SELECT case_key,payload FROM results WHERE run_id=? AND run_id IN (SELECT id FROM runs WHERE batch_id=?)",
+                    (run_id, batch_id))}
+            older, newer = load(older_id), load(newer_id)
+            added = [newer[key] for key in sorted(set(newer) - set(older))]
+            removed = [older[key] for key in sorted(set(older) - set(newer))]
+            changed = []
+            fields = ("expected", "actual", "difference", "reasons", "source_evidence_sha256")
+            for key in sorted(set(older) & set(newer)):
+                if any(older[key].get(field) != newer[key].get(field) for field in fields):
+                    changed.append({"before": older[key], "after": newer[key]})
+            return {"older_id": older_id, "newer_id": newer_id,
+                    "added": added, "removed": removed, "changed": changed,
+                    "counts": {"added": len(added), "removed": len(removed), "changed": len(changed)}}
 
     def review(self, batch_id, case_key, evidence_hash, status, note):
         if not isinstance(status, str) or status not in REVIEW_LABELS:

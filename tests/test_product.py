@@ -303,6 +303,39 @@ class HttpTests(unittest.TestCase):
         status, _, _ = self.request("/api/demo", {}, headers={"Content-Length":str(9*1024*1024)})
         self.assertEqual(status, 400)
 
+    def test_templates_history_compare_and_filtered_export(self):
+        status, template, _ = self.request("/api/templates", {"name":"wechat alias", "side":"orders",
+            "mapping":{"order_id":"order_id","amount":"amount","channel":"channel"},
+            "channel_aliases":{"微信":"wechat"}})
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(template["channel_aliases"]), {"微信":"wechat"})
+        status, created, _ = self.request("/api/batches", {"name":"history api"})
+        self.assertEqual(status, 200)
+        batch = created["batch_id"]
+        orders_data = base64.b64encode(b"order_id,amount,channel\nA,1.00,\xe5\xbe\xae\xe4\xbf\xa1\n").decode()
+        payments_data = base64.b64encode(b"order_id,transaction_id,amount,event_type,channel\nA,P1,1.00,sale,wechat\n").decode()
+        status, _, _ = self.request(f"/api/batches/{batch}/import", {"side":"orders","filename":"orders.csv",
+            "content":orders_data,"mapping":{"order_id":"order_id","amount":"amount","channel":"channel"},
+            "channel_aliases":{"微信":"wechat"}})
+        self.assertEqual(status, 200)
+        status, _, _ = self.request(f"/api/batches/{batch}/import", {"side":"payments","filename":"payments.csv",
+            "content":payments_data,"mapping":{"order_id":"order_id","transaction_id":"transaction_id","amount":"amount","event_type":"event_type","channel":"channel"}})
+        self.assertEqual(status, 200)
+        status, first, _ = self.request(f"/api/batches/{batch}/reconcile", {})
+        self.assertEqual(status, 200)
+        status, _, _ = self.request(f"/api/batches/{batch}/import", {"side":"orders","filename":"extra.csv",
+            "content":base64.b64encode(b"order_id,amount,channel\nB,2.00,wechat\n").decode(),
+            "mapping":{"order_id":"order_id","amount":"amount","channel":"channel"}})
+        self.assertEqual(status, 200)
+        status, second, _ = self.request(f"/api/batches/{batch}/reconcile", {})
+        self.assertEqual(status, 200)
+        status, comparison, _ = self.request(f"/api/batches/{batch}/compare?from={first['run_id']}&to={second['run_id']}")
+        self.assertEqual(status, 200)
+        self.assertEqual(comparison["counts"]["added"], 1)
+        status, raw, _ = self.request(f"/api/batches/{batch}/export?reason=order_only")
+        self.assertEqual(status, 200)
+        self.assertIn("B", raw.decode("utf-8-sig"))
+
 
 if __name__ == "__main__":
     unittest.main()

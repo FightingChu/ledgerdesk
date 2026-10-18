@@ -100,7 +100,7 @@ class SchemaTests(unittest.TestCase):
     def test_new_database_and_reopen(self):
         store = Store(self.path)
         batch = create_demo(store)
-        self.assertEqual(self.version(), 3)
+        self.assertEqual(self.version(), 4)
         self.assertEqual(Store(self.path).detail(batch)["run"]["summary"]["issues"], 5)
         self.assertEqual(list(self.path.parent.glob("*.pre-*.sqlite3")), [])
 
@@ -111,7 +111,7 @@ class SchemaTests(unittest.TestCase):
             con.execute("INSERT INTO imports VALUES('file','old','orders','old.csv','hash','{}',1,'2026-10-18')")
             con.commit()
         store = Store(self.path)
-        self.assertEqual(self.version(), 3)
+        self.assertEqual(self.version(), 4)
         self.assertEqual(store.detail("old")["imports"][0]["currency_policy"], "legacy_unverified")
         backups = list(self.path.parent.glob("*.pre-*.sqlite3"))
         self.assertEqual(len(backups), 1)
@@ -199,14 +199,14 @@ class StartupTests(unittest.TestCase):
 
     def test_same_workspace_reuses_identified_instance(self):
         from ledgerdesk.server import instance_identity
-        browser, make, _ = self.invoke({**instance_identity(self.db), "version": "0.2.0"})
+        browser, make, _ = self.invoke({**instance_identity(self.db), "version": "0.3.0"})
         browser.assert_called_once()
         make.assert_not_called()
 
     def test_other_workspace_conflict_never_opens_page(self):
         from ledgerdesk.server import instance_identity
         with self.assertRaises(SystemExit) as exc:
-            self.invoke({**instance_identity(self.db.parent / "other.sqlite3"), "version": "0.2.0"})
+            self.invoke({**instance_identity(self.db.parent / "other.sqlite3"), "version": "0.3.0"})
         self.assertEqual(exc.exception.code, 1)
         self.assertFalse(self.db.exists())
 

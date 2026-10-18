@@ -1,7 +1,7 @@
 "use strict";
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
-const state = { token: "", batches: [], batch: null, filter: "issues", importSide: "orders", upload: null, currentCase: null, busy: false, importContext: null, revokeContext: null, previewRevision: 0, pageRevision: 0 };
+const state = { token: "", batches: [], templates: [], batch: null, filter: "issues", importSide: "orders", upload: null, currentCase: null, busy: false, importContext: null, revokeContext: null, previewRevision: 0, pageRevision: 0 };
 const fieldLabels = { order_id: "订单号", transaction_id: "渠道流水号", amount: "金额（元）", event_type: "类型：sale / refund", channel: "渠道" };
 const reviewLabels = { pending: "待处理", in_progress: "处理中", resolved: "已处理" };
 const escapeHTML = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -30,6 +30,30 @@ async function refreshList() {
   $("#list-count").textContent = state.batches.length;
   $("#empty-batches").hidden = !!state.batches.length;
   $("#batch-list").innerHTML = state.batches.map((batch) => `<tr data-batch="${batch.id}" tabindex="0" role="button" aria-label="打开 ${escapeHTML(batch.name)}"><td><div class="batch-name">${escapeHTML(batch.name)}</div><div class="batch-sub">${escapeHTML(batch.description || "独立核查批次")}</div></td><td><span class="badge ${batch.is_sample ? "" : "neutral"}">${batch.is_sample ? "合成样例" : "用户导入"}</span></td><td>${batch.file_count} 份文件</td><td>${timeLabel(batch.created_at)}</td><td>↗</td></tr>`).join("");
+}
+function templateOptions(side) {
+  return `<option value="">不使用模板</option>` + state.templates.filter((item)=>item.side===side)
+    .map((item)=>`<option value="${item.id}">${escapeHTML(item.name)}</option>`).join("");
+}
+function currentMapping() {
+  return Object.fromEntries([...$("#mapping-fields").querySelectorAll("select")].map((select)=>[select.name,select.value]));
+}
+function parseAliases() {
+  const raw=$("#channel-aliases").value.trim();
+  if (!raw) return {};
+  let aliases;
+  try { aliases=JSON.parse(raw); } catch { throw new Error("渠道别名必须是有效 JSON 对象"); }
+  if (!aliases || Array.isArray(aliases) || typeof aliases!=="object") throw new Error("渠道别名必须是 JSON 对象");
+  return aliases;
+}
+function renderHistory(data) {
+  const history=data.history||[];
+  $("#history-list").innerHTML=history.length<2 ? '<p class="hint">至少完成两次核对后才能比较。</p>' : history.slice(1).map((run,index)=>`<div class="history-row"><span>${timeLabel(run.created_at)} · ${escapeHTML(run.summary)}</span><button class="text-button" data-compare-from="${run.id}" data-compare-to="${history[index].id}">比较到较新版本</button></div>`).join("");
+}
+async function compareHistory(from,to) {
+  const result=await api(`/api/batches/${state.batch.batch.id}/compare?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+  $("#history-compare").hidden=false;
+  $("#history-compare").innerHTML=`新增 ${result.counts.added} 项 · 消失 ${result.counts.removed} 项 · 变化 ${result.counts.changed} 项`;
 }
 function showHome() {
   if (state.busy) return;
@@ -67,6 +91,7 @@ async function openBatch(id, reset = true) {
   $("#reconcile").textContent = data.run ? "重新核对 ↗" : "执行核对 ↗";
   $("#export-link").hidden = !data.run || data.stale;
   $("#export-link").href = `/api/batches/${id}/export`;
+  renderHistory(data);
   const labels = {create_batch:"创建批次",import_file:"导入文件",reconcile:"执行核对",review:"更新处理记录",revoke_import:"撤销文件",replace_import:"替换文件"};
   $("#audit-list").innerHTML = data.audit.map((item) => { const payload=JSON.parse(item.payload); const description=item.action==="import_file"?`${payload.filename} · ${payload.rows} 行`:item.action==="review"?`${reviewLabels[payload.status]} · ${payload.note}`:item.action==="revoke_import"?`${payload.filename} · ${payload.reason}`:item.action==="replace_import"?`${payload.filename} → ${payload.replacement_filename} · ${payload.reason}`:""; return `<div class="audit-item"><time>${timeLabel(item.created_at)}</time><span>${labels[item.action] || item.action} ${escapeHTML(description)}</span></div>`; }).join("");
   renderResults();
@@ -88,6 +113,10 @@ function renderResults() {
   }).join("");
   $("#empty-results").hidden = !!records.length;
   $("#empty-results").innerHTML = state.batch.run ? '<h3>当前筛选下没有记录</h3><p>尝试切换筛选或清除搜索条件。</p>' : '<span class="empty-icon">⇄</span><h3>准备好两份文件，就可以开始</h3><p>导入业务单和支付账单，确认映射后点击“执行核对”。</p>';
+  const reason=$("#reason-filter").value, status=$("#status-filter").value;
+  const params=new URLSearchParams(); if(reason!=="all") params.set("reason",reason); if(status!=="all"&&status!=="outstanding") params.set("status",status);
+  $("#export-filter-link").hidden=!state.batch.run||state.batch.stale;
+  $("#export-filter-link").href=`/api/batches/${state.batch.batch.id}/export${params.toString()?"?"+params.toString():""}`;
 }
 function startImport(side, replaceId=null) {
   if (state.busy) return;
@@ -98,6 +127,9 @@ function startImport(side, replaceId=null) {
   $("#import-form").reset(); $("#mapping-area").hidden=true; $("#mapping-warning").hidden=true; $("#import-errors").hidden=true; $("#confirm-import").disabled=true;
   $("#replacement-reason-field").hidden=!replaceId;
   $("#replacement-reason").required=!!replaceId;
+  $("#template-select").innerHTML=templateOptions(side);
+  $("#channel-aliases").value="";
+  $("#template-name").value="";
   $("#confirm-import").textContent=replaceId?"确认替换":"确认导入";
   $("#import-title").textContent=(replaceId?"替换":"导入")+(side==="orders"?"业务单":"支付账单");
   $("#import-help").textContent=side==="orders"?"每个渠道和订单号应有一条业务单。金额填写扣除预计退款后的净到账，不扣手续费。":"每行一笔收款或退款，金额填正数；退款类型使用 refund。流水号在同一渠道内应唯一。";
@@ -119,6 +151,15 @@ async function previewFile() {
   const ambiguous=Object.entries(preview.ambiguous_fields);
   $("#mapping-warning").hidden=!ambiguous.length;
   $("#mapping-warning").textContent=ambiguous.map(([field,columns])=>`${fieldLabels[field]}有多个候选列（${columns.join("、")}），请手动选择。`).join(" ");
+  const selectedTemplate=state.templates.find((item)=>item.id===$("#template-select").value && item.side===selectedSide);
+  if (selectedTemplate) {
+    const templateMapping=JSON.parse(selectedTemplate.mapping), templateAliases=JSON.parse(selectedTemplate.channel_aliases||"{}");
+    for (const [field,header] of Object.entries(templateMapping)) {
+      const select=$("#mapping-fields").querySelector(`select[name="${CSS.escape(field)}"]`);
+      if (select) select.value=header;
+    }
+    $("#channel-aliases").value=JSON.stringify(templateAliases);
+  }
   $("#preview-count").textContent=`${preview.row_count} 行数据`;
   $("#preview-head").innerHTML=`<tr>${preview.headers.map((header)=>`<th>${escapeHTML(header)}</th>`).join("")}</tr>`;
   $("#preview-body").innerHTML=preview.rows.map((row)=>`<tr>${preview.headers.map((header)=>`<td>${escapeHTML(row[header])}</td>`).join("")}</tr>`).join("");
@@ -154,11 +195,23 @@ $("#batch-list").addEventListener("keydown",(event)=>{if(event.key==="Enter"||ev
 $$(".close-dialog").forEach((button)=>button.addEventListener("click",()=>button.closest("dialog").close()));
 $$(".import-trigger").forEach((button)=>button.addEventListener("click",()=>startImport(button.dataset.side)));
 $("#csv-file").addEventListener("change",()=>previewFile().catch((error)=>notify(error.message,true)));
-$("#import-form").addEventListener("submit",(event)=>{event.preventDefault();if(!state.upload)return;const context={...state.importContext};const mapping=Object.fromEntries([...$("#mapping-fields").querySelectorAll("select")].map((select)=>[select.name,select.value]));const payload={side:state.importSide,...state.upload,mapping,replace_id:context.replaceId,reason:$("#replacement-reason").value};action(event.submitter,async()=>{try{const result=await api(`/api/batches/${context.batchId}/import`,payload);$("#import-dialog").close();await openBatch(context.batchId,false);await refreshList();notify(result.duplicate?"有效文件和映射均未变化，本次未重复入库":context.replaceId?"文件已替换，旧记录已保留，请重新核对":`已导入 ${result.row_count} 行，请执行核对`);}catch(error){$("#import-errors").textContent=error.message+(error.errors?.length?"\n"+error.errors.map((item)=>`第 ${item.line} 行：${item.message}`).join("\n"):"");$("#import-errors").hidden=false;}});});
+$("#import-form").addEventListener("submit",(event)=>{event.preventDefault();if(!state.upload)return;let aliases;try{aliases=parseAliases();}catch(error){notify(error.message,true);return;}const context={...state.importContext};const mapping=currentMapping();const payload={side:state.importSide,...state.upload,mapping,channel_aliases:aliases,replace_id:context.replaceId,reason:$("#replacement-reason").value};action(event.submitter,async()=>{try{const result=await api(`/api/batches/${context.batchId}/import`,payload);$("#import-dialog").close();await openBatch(context.batchId,false);await refreshList();notify(result.duplicate?"有效文件和映射均未变化，本次未重复入库":context.replaceId?"文件已替换，旧记录已保留，请重新核对":`已导入 ${result.row_count} 行，请执行核对`);}catch(error){$("#import-errors").textContent=error.message+(error.errors?.length?"\n"+error.errors.map((item)=>`第 ${item.line} 行：${item.message}`).join("\n"):"");$("#import-errors").hidden=false;}});});
 $("#reconcile").addEventListener("click",(event)=>action(event.currentTarget,async()=>{const result=await api(`/api/batches/${state.batch.batch.id}/reconcile`,{});await openBatch(state.batch.batch.id,false);await refreshList();notify(result.reused?"源数据未变，已显示原核对结果":"核对完成");}));
 $$("[data-filter]").forEach((button)=>button.addEventListener("click",()=>{state.filter=button.dataset.filter;$("#reason-filter").value="all";$("#status-filter").value=state.filter==="issues"?"outstanding":"all";renderResults();}));
 $("#reason-filter").addEventListener("change",renderResults);
 $("#status-filter").addEventListener("change",renderResults);
+$("#template-select").addEventListener("change",()=>{
+  const selected=state.templates.find((item)=>item.id===$("#template-select").value);
+  if (!selected || !$("#mapping-area").hidden) {
+    if (selected) {
+      const mapping=JSON.parse(selected.mapping), aliases=JSON.parse(selected.channel_aliases||"{}");
+      for (const [field,header] of Object.entries(mapping)) { const select=$("#mapping-fields").querySelector(`select[name="${CSS.escape(field)}"]`); if(select) select.value=header; }
+      $("#channel-aliases").value=JSON.stringify(aliases);
+    }
+  }
+});
+$("#save-template").addEventListener("click",async()=>{try{const name=$("#template-name").value.trim();if(!name)throw new Error("请填写模板名称");const result=await api("/api/templates",{name,side:state.importSide,mapping:currentMapping(),channel_aliases:parseAliases()});state.templates=await api("/api/templates").then((data)=>data.templates);$("#template-select").innerHTML=templateOptions(state.importSide);$("#template-select").value=result.id;notify("映射模板已保存");}catch(error){notify(error.message,true);}});
+$("#history-list").addEventListener("click",(event)=>{const button=event.target.closest("[data-compare-from]");if(button)compareHistory(button.dataset.compareFrom,button.dataset.compareTo).catch((error)=>notify(error.message,true));});
 for (const id of ["#order-files","#payment-files"]) $(id).addEventListener("click",(event)=>{
   if(state.busy)return;
   const replace=event.target.closest("[data-replace]"),revoke=event.target.closest("[data-revoke]");
@@ -169,4 +222,4 @@ $("#revoke-form").addEventListener("submit",(event)=>{event.preventDefault();con
 $("#search").addEventListener("input",renderResults);
 $("#results-list").addEventListener("click",(event)=>{const button=event.target.closest("[data-case]");if(button)openCase(button.dataset.case);});
 $("#review-form").addEventListener("submit",(event)=>{event.preventDefault();action(event.submitter,async()=>{const row=state.currentCase;await api(`/api/batches/${state.batch.batch.id}/review`,{case_key:row.case_key,evidence_sha256:row.evidence_sha256,status:$("#review-status").value,note:$("#review-note").value});$("#case-dialog").close();await openBatch(state.batch.batch.id,false);notify("处理记录已保存");});});
-api("/api/bootstrap").then(async(data)=>{state.token=data.token;$("#app-version").textContent=`v${data.version}`;await refreshList();}).catch((error)=>notify("本地服务连接失败："+error.message,true));
+api("/api/bootstrap").then(async(data)=>{state.token=data.token;state.templates=(await api("/api/templates")).templates;$("#app-version").textContent=`v${data.version}`;await refreshList();}).catch((error)=>notify("本地服务连接失败："+error.message,true));

@@ -177,11 +177,36 @@ class ManagementTests(unittest.TestCase):
         self.assertEqual(detail["imports"][0]["currency_policy"], "default_cny")
         self.assertEqual(detail["imports"][0]["is_active"], 1)
         with upgraded.connect() as con:
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 3)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 4)
             self.assertEqual(con.execute("PRAGMA integrity_check").fetchone()[0], "ok")
             self.assertEqual(con.execute("PRAGMA foreign_key_check").fetchall(), [])
         with closing(sqlite3.connect(next(path.parent.glob("v2.sqlite3.pre-*.sqlite3")))) as con:
             self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 2)
+
+    def test_mapping_template_and_channel_alias_roundtrip(self):
+        store = Store(self.path)
+        batch = store.create_batch("template aliases")
+        template = store.save_template("微信标准", "orders", {"order_id": "order_id", "amount": "amount", "channel": "channel"}, {"微信": "wechat"})
+        self.assertEqual(json.loads(template["channel_aliases"]), {"微信": "wechat"})
+        data = encoded("order_id,amount,channel\nA,1.00,微信\n")
+        store.import_file(batch, "orders", "orders.csv", data, json.loads(template["mapping"]), channel_aliases=json.loads(template["channel_aliases"]))
+        self.assertEqual(store.list_templates("orders")[0]["name"], "微信标准")
+        self.assertEqual(store.detail(batch)["imports"][0]["channel_aliases"], '{"微信": "wechat"}')
+        with store.connect() as con:
+            self.assertEqual(con.execute("SELECT channel FROM entries").fetchone()[0], "wechat")
+        self.assertTrue(store.delete_template(template["id"])["deleted"])
+
+    def test_history_compare_and_filtered_export_rows(self):
+        batch = self.store.create_batch("history")
+        self.batch = batch
+        self.add("orders", "A,1,x")
+        self.add("payments", "A,P1,1,sale,x")
+        first = self.reconcile()["run"]["id"]
+        self.add("orders", "B,2,x")
+        second = self.reconcile()["run"]["id"]
+        comparison = self.store.compare_runs(batch, first, second)
+        self.assertEqual(comparison["counts"]["added"], 1)
+        self.assertEqual(len(self.store.history(batch)), 2)
 
 
 class InputAndBackupTests(unittest.TestCase):

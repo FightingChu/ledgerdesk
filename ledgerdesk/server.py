@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 import secrets
 import socket
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from . import __version__
 from .imports import InputError, preview
@@ -44,7 +44,20 @@ def safe_cell(value):
     return text
 
 
-def export_csv(detail):
+def filtered_results(detail, query):
+    rows = detail["results"]
+    reason = query.get("reason", ["all"])[0]
+    status = query.get("status", ["all"])[0]
+    if reason != "all":
+        rows = [row for row in rows if reason in row["reasons"]]
+    if status == "not_required":
+        rows = [row for row in rows if row["reasons"] == ["matched"]]
+    elif status != "all":
+        rows = [row for row in rows if row["review_status"] == status]
+    return rows
+
+
+def export_csv(detail, rows=None):
     if not detail["run"]:
         raise InputError("请先执行核对")
     if detail["stale"]:
@@ -53,7 +66,7 @@ def export_csv(detail):
     writer = csv.writer(out)
     writer.writerow(["数据性质", "渠道", "订单号", "预计净到账(元)", "账单净额(元)", "差额(元)",
                      "业务单行数", "账单行数", "核查结果", "处理状态", "处理备注", "核对时间UTC"])
-    for row in detail["results"]:
+    for row in detail["results"] if rows is None else rows:
         writer.writerow(["合成样例" if detail["batch"]["is_sample"] else "用户导入（来源未核验）",
             safe_cell(row["channel"]), safe_cell(row["order_id"]), row["expected"].replace(",", ""),
             row["actual"].replace(",", ""), row["difference"].replace(",", ""), row["order_count"], row["payment_count"],
@@ -142,16 +155,26 @@ def make_server(db_path, port=8765):
                         "batches": store.list_batches(), "reason_labels": LABELS, "review_labels": REVIEW_LABELS})
                 elif path == "/api/batches":
                     self.respond(200, {"batches": store.list_batches()})
+                elif path == "/api/templates":
+                    self.respond(200, {"templates": store.list_templates()})
                 elif path.startswith("/api/batches/"):
                     parts = path.strip("/").split("/")
-                    if len(parts) not in (3, 4) or (len(parts) == 4 and parts[3] != "export"):
+                    if len(parts) not in (3, 4) or (len(parts) == 4 and parts[3] not in ("export", "history", "compare")):
                         self.respond(404, {"error": "接口不存在"})
                         return
                     detail = store.detail(parts[2])
                     if len(parts) == 4:
-                        self.respond(200, export_csv(detail), "text/csv; charset=utf-8",
-                                     {"Content-Disposition": 'attachment; filename="ledgerdesk-reconciliation.csv"'})
+                        query = parse_qs(urlsplit(self.path).query)
+                        if parts[3] == "history":
+                            self.respond(200, {"history": store.history(parts[2])})
+                        elif parts[3] == "compare":
+                            self.respond(200, store.compare_runs(parts[2], query.get("from", [""])[0], query.get("to", [""])[0]))
+                        else:
+                            rows = filtered_results(detail, query)
+                            self.respond(200, export_csv(detail, rows), "text/csv; charset=utf-8",
+                                         {"Content-Disposition": 'attachment; filename="ledgerdesk-reconciliation.csv"'})
                     else:
+                        detail["history"] = store.history(parts[2])
                         self.respond(200, detail)
                 elif path in ("/", "/app.js", "/style.css"):
                     name, mime = {"/": ("index.html", "text/html; charset=utf-8"),
@@ -192,7 +215,8 @@ def make_server(db_path, port=8765):
                     if action == "import":
                         result = store.import_file(batch_id, payload.get("side"), payload.get("filename"),
                                                    payload.get("content"), payload.get("mapping"),
-                                                   replace_id=payload.get("replace_id"), reason=payload.get("reason", ""))
+                                                   replace_id=payload.get("replace_id"), reason=payload.get("reason", ""),
+                                                   channel_aliases=payload.get("channel_aliases"))
                     elif action == "revoke-import":
                         result = store.revoke_import(batch_id, payload.get("import_id"), payload.get("reason"))
                     elif action == "reconcile":
@@ -204,6 +228,11 @@ def make_server(db_path, port=8765):
                     else:
                         self.respond(404, {"error": "接口不存在"})
                         return
+                elif path == "/api/templates":
+                    result = store.save_template(payload.get("name"), payload.get("side"),
+                                                 payload.get("mapping"), payload.get("channel_aliases"))
+                elif path == "/api/templates/delete":
+                    result = store.delete_template(payload.get("id"))
                 else:
                     self.respond(404, {"error": "接口不存在"})
                     return
