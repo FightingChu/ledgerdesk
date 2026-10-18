@@ -191,7 +191,10 @@ def make_server(db_path, port=8765):
                     batch_id, action = parts[2:]
                     if action == "import":
                         result = store.import_file(batch_id, payload.get("side"), payload.get("filename"),
-                                                   payload.get("content"), payload.get("mapping"))
+                                                   payload.get("content"), payload.get("mapping"),
+                                                   replace_id=payload.get("replace_id"), reason=payload.get("reason", ""))
+                    elif action == "revoke-import":
+                        result = store.revoke_import(batch_id, payload.get("import_id"), payload.get("reason"))
                     elif action == "reconcile":
                         result = store.reconcile(batch_id)
                     elif action == "review":

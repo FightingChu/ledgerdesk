@@ -15,7 +15,7 @@ RELEASE_FILES = (
     "ledgerdesk/store.py", "ledgerdesk/server.py", "ledgerdesk/static/index.html",
     "ledgerdesk/static/app.js", "ledgerdesk/static/style.css",
     "samples/orders.csv", "samples/payments.csv", "scripts/build_release.py",
-    "tests/__init__.py", "tests/test_product.py", "tests/test_reliability.py",
+    "tests/__init__.py", "tests/test_product.py", "tests/test_reliability.py", "tests/test_import_management.py",
     "tests/fixtures/schema_v1.sql", "docs/PRODUCT.md", "docs/FEEDBACK_TEMPLATE.md",
     "docs/CHANGELOG.md",
 )

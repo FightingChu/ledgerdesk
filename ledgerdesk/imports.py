@@ -130,13 +130,15 @@ def preview(side, content):
         raise InputError("未知数据类型")
     raw, text = decode_file(content)
     headers, rows = read_csv(text)
-    normalized = {header.casefold(): header for header in headers}
-    mapping = {}
+    mapping, ambiguous = {}, {}
     for field in FIELDS[side]:
-        mapping[field] = next((normalized[name.casefold()] for name in ALIASES[field]
-                               if name.casefold() in normalized), "")
+        aliases = {name.casefold() for name in ALIASES[field]}
+        candidates = [header for header in headers if header.casefold() in aliases]
+        mapping[field] = candidates[0] if len(candidates) == 1 else ""
+        if len(candidates) > 1:
+            ambiguous[field] = candidates
     return {"headers": headers, "rows": [row for _, row in rows[:5]],
-            "row_count": len(rows), "mapping": mapping,
+            "row_count": len(rows), "mapping": mapping, "ambiguous_fields": ambiguous,
             "file_sha256": hashlib.sha256(raw).hexdigest(), "currency": currency_summary(headers, rows)}
 
 

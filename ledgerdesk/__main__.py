@@ -1,6 +1,7 @@
 import argparse
 import logging
 import json
+import sqlite3
 from pathlib import Path
 import threading
 import webbrowser
@@ -25,10 +26,12 @@ def main():
     db = args.data_dir.resolve()/"ledgerdesk.sqlite3"
     if args.backup:
         try:
-            Store(db).backup(args.backup)
-        except (InputError, OSError) as exc:
+            summary = Store.backup_existing(db, args.backup)
+        except (InputError, OSError, sqlite3.Error) as exc:
             parser.exit(1, str(exc) + "\n")
         print("Backup saved:", args.backup.resolve())
+        print("Source:", db, "| Batches:", summary["batches"], "| Rows:", summary["entries"],
+              "| Schema:", summary["schema_version"])
         return
     if args.open and args.port:
         # A second double-click opens this app instead of starting another copy.
@@ -51,6 +54,8 @@ def main():
         parser.exit(1, "Cannot start local server: "+str(exc)+". Try --port 8766.\n")
     except InputError as exc:
         parser.exit(1, str(exc) + "\n")
+    except sqlite3.Error as exc:
+        parser.exit(1, "Cannot open database: " + str(exc) + ". Check the data directory and backup.\n")
     url = f"http://127.0.0.1:{server.server_address[1]}"
     print(f"LedgerDesk {__version__} | Personal validation build", flush=True)
     print("Open:", url, "| Data:", db, flush=True)

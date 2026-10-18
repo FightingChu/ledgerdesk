@@ -10,7 +10,8 @@ import uuid
 
 from .imports import InputError, money, parse
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+RECONCILIATION_VERSION = 2
 
 LABELS = {"matched": "金额一致", "amount_mismatch": "金额不一致", "order_only": "仅业务单",
           "payment_only": "仅支付账单", "duplicate_order": "重复业务单", "duplicate_transaction": "重复流水"}
@@ -45,6 +46,9 @@ class Store:
             with closing(sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True)) as con:
                 self._check_version(con)
         with self.connect() as con:
+            # v2 -> v3 rebuilds the parent imports table. Disable FK enforcement
+            # before BEGIN, then validate all references before the transaction commits.
+            con.execute("PRAGMA foreign_keys=OFF")
             con.execute("BEGIN IMMEDIATE")
             version = self._check_version(con)
             if version == 0:
@@ -54,6 +58,8 @@ class Store:
                     self.path.name + f".pre-v{version}-to-v{SCHEMA_VERSION}-{identifier()}.sqlite3"))
             for previous in range(version or 1, SCHEMA_VERSION):
                 self._migrate(con, previous)
+            if con.execute("PRAGMA foreign_key_check").fetchone():
+                raise InputError("数据库外键检查失败，升级已回滚，请保留备份")
             if version < SCHEMA_VERSION:
                 con.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         with self.connect() as con:
@@ -112,6 +118,23 @@ class Store:
             # Original CSV bytes / ignored columns were never stored in 0.1.0.
             # Preserve history without claiming its currency was revalidated.
             con.execute("ALTER TABLE imports ADD COLUMN currency_policy TEXT NOT NULL DEFAULT 'legacy_unverified'")
+        elif version == 2:
+            con.execute("""CREATE TABLE imports_new (
+                id TEXT PRIMARY KEY, batch_id TEXT NOT NULL REFERENCES batches(id),
+                side TEXT NOT NULL, filename TEXT NOT NULL, file_sha256 TEXT NOT NULL,
+                mapping TEXT NOT NULL, row_count INTEGER NOT NULL, created_at TEXT NOT NULL,
+                currency_policy TEXT NOT NULL DEFAULT 'legacy_unverified',
+                is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
+                revoked_at TEXT, revoked_reason TEXT NOT NULL DEFAULT '',
+                replaces_id TEXT REFERENCES imports(id))""")
+            con.execute("""INSERT INTO imports_new(id,batch_id,side,filename,file_sha256,mapping,
+                row_count,created_at,currency_policy)
+                SELECT id,batch_id,side,filename,file_sha256,mapping,row_count,created_at,currency_policy
+                FROM imports ORDER BY rowid""")
+            con.execute("DROP TABLE imports")
+            con.execute("ALTER TABLE imports_new RENAME TO imports")
+            con.execute("CREATE UNIQUE INDEX active_import_hash ON imports(batch_id,side,file_sha256) WHERE is_active=1")
+            con.execute("ALTER TABLE batches ADD COLUMN input_revision INTEGER NOT NULL DEFAULT 0")
         else:
             raise InputError(f"没有数据库版本 {version} 的升级路径")
 
@@ -144,7 +167,7 @@ class Store:
             raise InputError("批次说明最多 500 字符")
         batch_id = identifier()
         with self.connect() as con:
-            con.execute("INSERT INTO batches VALUES(?,?,?,?,?)",
+            con.execute("INSERT INTO batches(id,name,description,is_sample,created_at) VALUES(?,?,?,?,?)",
                         (batch_id, name, description.strip(), int(is_sample), now()))
             self.audit(con, batch_id, "create_batch", {"is_sample": bool(is_sample)})
         return batch_id
@@ -152,52 +175,110 @@ class Store:
     def list_batches(self):
         with self.connect() as con:
             return [dict(row) for row in con.execute("""
-                SELECT b.*, (SELECT COUNT(*) FROM imports i WHERE i.batch_id=b.id) AS file_count,
+                SELECT b.*, (SELECT COUNT(*) FROM imports i WHERE i.batch_id=b.id AND i.is_active=1) AS file_count,
                   (SELECT MAX(created_at) FROM runs r WHERE r.batch_id=b.id) AS last_run
                 FROM batches b ORDER BY b.created_at DESC,b.rowid DESC
             """)]
 
-    def import_file(self, batch_id, side, filename, content, mapping):
+    @staticmethod
+    def source_fingerprint(con, batch_id):
+        revision = Store.batch(con, batch_id)["input_revision"]
+        files = list(con.execute("SELECT id,file_sha256,mapping FROM imports WHERE batch_id=? AND is_active=1 ORDER BY id", (batch_id,)))
+        return digest({"engine": RECONCILIATION_VERSION, "revision": revision,
+                       "files": [tuple(row) for row in files]})
+
+    @staticmethod
+    def active_import(con, batch_id, import_id, side=None):
+        row = con.execute("SELECT * FROM imports WHERE id=? AND batch_id=? AND is_active=1",
+                          (import_id, batch_id)).fetchone()
+        if row is None or (side is not None and row["side"] != side):
+            raise InputError("文件不存在、已撤销或不属于当前批次和数据侧，请刷新页面")
+        return dict(row)
+
+    def import_backup(self):
+        destination = self.path.with_name(self.path.name + f".before-import-{identifier()}.sqlite3")
+        self.backup(destination)
+        return destination.name
+
+    def revoke_import(self, batch_id, import_id, reason):
+        reason = require_text(reason, "撤销原因", 500)
+        with self.connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            self.batch(con, batch_id)
+            original = self.active_import(con, batch_id, import_id)
+            backup = self.import_backup()
+            con.execute("UPDATE imports SET is_active=0,revoked_at=?,revoked_reason=? WHERE id=?",
+                        (now(), reason, import_id))
+            con.execute("UPDATE batches SET input_revision=input_revision+1 WHERE id=?", (batch_id,))
+            self.audit(con, batch_id, "revoke_import", {"import_id": import_id, "filename": original["filename"],
+                       "reason": reason, "backup": backup})
+        return {"revoked": True, "import_id": import_id}
+
+    def import_file(self, batch_id, side, filename, content, mapping, replace_id=None, reason=""):
         filename = require_text(filename, "文件名", 200)
         file_hash, records = parse(side, content, mapping)
+        if replace_id is not None:
+            replace_id = require_text(replace_id, "被替换文件", 64)
+            reason = require_text(reason, "替换原因", 500)
         with self.connect() as con:
             # Serialize check+insert: repeated or concurrent requests cannot add twice.
             con.execute("BEGIN IMMEDIATE")
             self.batch(con, batch_id)
-            previous = con.execute("SELECT id,row_count,mapping FROM imports WHERE batch_id=? AND side=? AND file_sha256=?",
+            if replace_id:
+                original = self.active_import(con, batch_id, replace_id, side)
+            previous = con.execute("SELECT id,row_count,mapping FROM imports WHERE batch_id=? AND side=? AND file_sha256=? AND is_active=1",
                                    (batch_id, side, file_hash)).fetchone()
             if previous:
-                if json.loads(previous["mapping"]) != mapping:
-                    raise InputError("同一文件已按其他映射导入；请新建批次修正映射")
-                return {"id": previous["id"], "row_count": previous["row_count"], "duplicate": True}
+                if replace_id and previous["id"] != replace_id:
+                    raise InputError("替换文件已作为另一份有效文件导入，请先核实文件关系")
+                if json.loads(previous["mapping"]) == mapping:
+                    return {"id": previous["id"], "row_count": previous["row_count"], "duplicate": True}
+                if not replace_id:
+                    raise InputError("同一文件已按其他映射导入；请使用替换文件修正映射")
+            backup = None
+            if replace_id:
+                backup = self.import_backup()
+                con.execute("UPDATE imports SET is_active=0,revoked_at=?,revoked_reason=? WHERE id=?",
+                            (now(), reason, replace_id))
             import_id = identifier()
-            con.execute("INSERT INTO imports(id,batch_id,side,filename,file_sha256,mapping,row_count,created_at,currency_policy) VALUES(?,?,?,?,?,?,?,?,?)",
+            con.execute("INSERT INTO imports(id,batch_id,side,filename,file_sha256,mapping,row_count,created_at,currency_policy,replaces_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
                         (import_id, batch_id, side, filename, file_hash,
-                         json.dumps(mapping, ensure_ascii=False), len(records), now(), records[0]["currency_policy"]))
+                         json.dumps(mapping, ensure_ascii=False), len(records), now(), records[0]["currency_policy"], replace_id))
             con.executemany("INSERT INTO entries(import_id,line,channel,order_id,transaction_id,kind,amount_cents) VALUES(?,?,?,?,?,?,?)",
                 [(import_id, row["line"], row["channel"], row["order_id"], row["transaction_id"],
                   row["kind"], row["amount_cents"]) for row in records])
+            con.execute("UPDATE batches SET input_revision=input_revision+1 WHERE id=?", (batch_id,))
             self.audit(con, batch_id, "import_file", {"import_id": import_id, "side": side,
                        "filename": filename, "file_sha256": file_hash, "rows": len(records)})
+            if replace_id:
+                self.audit(con, batch_id, "replace_import", {"import_id": replace_id, "filename": original["filename"],
+                           "replacement_id": import_id, "replacement_filename": filename, "reason": reason, "backup": backup})
         return {"id": import_id, "row_count": len(records), "duplicate": False}
 
     def reconcile(self, batch_id):
         with self.connect() as con:
             con.execute("BEGIN IMMEDIATE")
             self.batch(con, batch_id)
-            files = [dict(row) for row in con.execute("SELECT * FROM imports WHERE batch_id=? ORDER BY id", (batch_id,))]
+            files = [dict(row) for row in con.execute("SELECT * FROM imports WHERE batch_id=? AND is_active=1 ORDER BY id", (batch_id,))]
             if {row["side"] for row in files} != {"orders", "payments"}:
                 raise InputError("请先分别导入业务单和支付账单")
-            fingerprint = digest([(row["id"], row["file_sha256"], row["mapping"]) for row in files])
+            fingerprint = self.source_fingerprint(con, batch_id)
             old = con.execute("SELECT id FROM runs WHERE batch_id=? AND input_sha256=?", (batch_id, fingerprint)).fetchone()
             if old:
                 return {"run_id": old["id"], "reused": True}
             rows = [dict(row) for row in con.execute("""
                 SELECT e.*,i.side,i.filename FROM entries e JOIN imports i ON e.import_id=i.id
-                WHERE i.batch_id=? ORDER BY e.id
+                WHERE i.batch_id=? AND i.is_active=1 ORDER BY e.id
             """, (batch_id,))]
             grouped = defaultdict(lambda: {"orders": [], "payments": []})
             duplicates = Counter((row["channel"], row["transaction_id"]) for row in rows if row["side"] == "payments")
+            transaction_rows = defaultdict(list)
+            for row in rows:
+                if row["side"] == "payments":
+                    transaction_rows[(row["channel"], row["transaction_id"])].append(row)
+            latest = con.execute("SELECT id FROM runs WHERE batch_id=? ORDER BY rowid DESC LIMIT 1", (batch_id,)).fetchone()
+            previous = {row["case_key"]: json.loads(row["payload"]) for row in con.execute(
+                "SELECT case_key,payload FROM results WHERE run_id=?", (latest["id"] if latest else "",))}
             for row in rows:
                 grouped[(row["channel"], row["order_id"])][row["side"]].append(row)
             results = []
@@ -223,14 +304,30 @@ class Store:
                 if not reasons:
                     reasons = ["matched"]
                 case_key = digest([channel, order_id])
-                evidence = digest([{key: row[key] for key in ("import_id", "line", "channel", "order_id",
-                                         "transaction_id", "kind", "amount_cents")} for row in orders+payments])
+                other_rows = {row["id"]: row for payment in payments
+                              for row in transaction_rows[(channel, payment["transaction_id"])]
+                              if row["order_id"] != order_id}
+                conflicts = [other_rows[key] for key in sorted(other_rows)]
+                source_evidence = digest([{key: row[key] for key in ("import_id", "line", "channel", "order_id",
+                                         "transaction_id", "kind", "amount_cents")} for row in orders+payments+conflicts])
+                last = previous.get(case_key)
+                if last and last.get("source_evidence_sha256", last["evidence_sha256"]) == source_evidence:
+                    evidence = last["evidence_sha256"]
+                else:
+                    # A new evidence generation prevents resurrecting a resolved
+                    # review when inputs revert to a much older state.
+                    evidence = digest([source_evidence, identifier()])
                 result = {"case_key": case_key, "channel": channel, "order_id": order_id,
                           "expected": money(expected), "actual": money(actual), "difference": money(actual-expected),
                           "sales": money(sales), "refunds": money(refunds), "reasons": reasons,
                           "reason_labels": [LABELS[reason] for reason in reasons],
                           "order_count": len(orders), "payment_count": len(payments),
                           "evidence_sha256": evidence,
+                          "source_evidence_sha256": source_evidence,
+                          "duplicate_rows": [{"order_id": row["order_id"], "channel": row["channel"],
+                                              "filename": row["filename"], "line": row["line"],
+                                              "transaction_id": row["transaction_id"], "kind": row["kind"],
+                                              "amount": money(row["amount_cents"])} for row in conflicts],
                           "rows": [{"side": row["side"], "filename": row["filename"], "line": row["line"],
                                     "transaction_id": row["transaction_id"], "kind": row["kind"],
                                     "amount": money(row["amount_cents"])} for row in orders+payments]}
@@ -252,8 +349,9 @@ class Store:
 
     def detail(self, batch_id):
         with self.connect() as con:
+            con.execute("BEGIN")
             batch = self.batch(con, batch_id)
-            files = [dict(row) for row in con.execute("SELECT id,side,filename,file_sha256,row_count,created_at,currency_policy FROM imports WHERE batch_id=? ORDER BY rowid", (batch_id,))]
+            files = [dict(row) for row in con.execute("SELECT id,side,filename,file_sha256,row_count,created_at,currency_policy,is_active,revoked_at,revoked_reason,replaces_id FROM imports WHERE batch_id=? ORDER BY rowid", (batch_id,))]
             latest = con.execute("SELECT * FROM runs WHERE batch_id=? ORDER BY rowid DESC LIMIT 1", (batch_id,)).fetchone()
             results = []
             if latest:
@@ -266,8 +364,7 @@ class Store:
                     item.update(review_status=row["status"] or "pending", note=row["note"] or "", reviewed_at=row["updated_at"])
                     results.append(item)
             # Compute stale state using the same source fingerprint as reconcile.
-            source = [dict(row) for row in con.execute("SELECT id,file_sha256,mapping FROM imports WHERE batch_id=? ORDER BY id", (batch_id,))]
-            stale = bool(latest and latest["input_sha256"] != digest([(r["id"], r["file_sha256"], r["mapping"]) for r in source]))
+            stale = bool(latest and latest["input_sha256"] != self.source_fingerprint(con, batch_id))
             audit = [dict(row) for row in con.execute("SELECT action,payload,created_at FROM audit WHERE batch_id=? ORDER BY id DESC LIMIT 50", (batch_id,))]
             return {"batch": batch, "imports": files, "run": ({"id": latest["id"], "created_at": latest["created_at"],
                     "summary": json.loads(latest["summary"])} if latest else None),
@@ -284,8 +381,7 @@ class Store:
             con.execute("BEGIN IMMEDIATE")
             self.batch(con, batch_id)
             latest = con.execute("SELECT id,input_sha256 FROM runs WHERE batch_id=? ORDER BY rowid DESC LIMIT 1", (batch_id,)).fetchone()
-            source = list(con.execute("SELECT id,file_sha256,mapping FROM imports WHERE batch_id=? ORDER BY id", (batch_id,)))
-            if not latest or latest["input_sha256"] != digest([tuple(row) for row in source]):
+            if not latest or latest["input_sha256"] != self.source_fingerprint(con, batch_id):
                 raise InputError("数据有更新，请重新核对后再处理差异")
             result = con.execute("SELECT payload,evidence_sha256 FROM results WHERE run_id=? AND case_key=?", (latest["id"], case_key)).fetchone()
             if not result or evidence_hash != result["evidence_sha256"]:
@@ -297,8 +393,27 @@ class Store:
             self.audit(con, batch_id, "review", {"case_key": case_key, "status": status, "note": note.strip()})
 
     def backup(self, destination):
+        return self.backup_existing(self.path, destination)
+
+    @classmethod
+    def backup_existing(cls, path, destination):
+        path = Path(path).resolve()
+        if not path.is_file():
+            raise InputError("备份源数据库不存在，请检查 --data-dir；未创建空数据库")
+        with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=20)) as source:
+            version = cls._check_version(source)
+            if version == 0:
+                raise InputError("备份源不是已初始化的 LedgerDesk 数据库")
+            summary = {"schema_version": version,
+                       "batches": source.execute("SELECT COUNT(*) FROM batches").fetchone()[0],
+                       "entries": source.execute("SELECT COUNT(*) FROM entries").fetchone()[0]}
+            cls._write_backup(source, path, destination)
+            return summary
+
+    @staticmethod
+    def _write_backup(source, source_path, destination):
         destination = Path(destination).resolve()
-        if destination == self.path or destination.exists():
+        if destination == source_path or destination.exists():
             raise InputError("备份路径必须是尚不存在的新文件")
         destination.parent.mkdir(parents=True, exist_ok=True)
         # Reserve the destination exclusively, so concurrent backups cannot
@@ -308,9 +423,9 @@ class Store:
                 pass
         except FileExistsError:
             raise InputError("备份目标已存在，请选择新文件") from None
-        with self.connect() as source:
-            target = sqlite3.connect(destination)
-            try:
+        try:
+            with closing(sqlite3.connect(destination)) as target:
                 source.backup(target)
-            finally:
-                target.close()
+        except BaseException:
+            destination.unlink(missing_ok=True)
+            raise
