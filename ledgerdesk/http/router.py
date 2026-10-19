@@ -1,8 +1,8 @@
 """Dispatch bounded feature adapters before the preserved legacy interfaces."""
 from urllib.parse import urlsplit, parse_qs
-from . import rules, statistics, evidence, reports, filters, preferences, jobs, assets
+from . import rules, statistics, evidence, reports, filters, preferences, jobs, assets, audit
 
-ROUTES = (assets, rules, statistics, evidence, reports, filters, preferences, jobs, assets)
+ROUTES = (assets, rules, statistics, evidence, reports, filters, preferences, jobs, audit, assets)
 
 
 class FeatureRouter:

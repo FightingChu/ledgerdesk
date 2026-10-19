@@ -169,5 +169,6 @@ reportView=LedgerDeskReports.initialize({api,action,notify,escapeHTML,state,onCh
 presetView=LedgerDeskPresets.initialize({api,action,notify,state,query:currentQuery,onApply:(p)=>{state.filter=p.group;$("#reason-filter").value=p.reason;$("#status-filter").value=p.status;$("#search").value=p.q;renderResults();}});
 LedgerDeskTasks.initialize({api,action,notify,escapeHTML,state,query:currentQuery});
 LedgerDeskBackupPolicy.initialize({api,action,notify});
+LedgerDeskAuditExport.initialize({context:()=>state.batch?{batchId:state.batch.batch.id}:null});
 
 api("/api/bootstrap").then(async(data)=>{state.token=data.token;state.templates=(await api("/api/templates")).templates;$("#app-version").textContent=`v${data.version}`;await refreshList();await Promise.all([reportView.load(),presetView.load()]);}).catch((error)=>notify("本地服务连接失败："+error.message,true));

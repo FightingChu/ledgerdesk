@@ -1,11 +1,11 @@
 """Register actual CLI commands and select one shared service implementation."""
-from . import batches, imports, reconcile, reports, rules, statistics, jobs, audit, evidence, history, maintenance, reviews, profiles, presets
+from . import batches, imports, reconcile, reports, rules, statistics, jobs, audit, evidence, history, maintenance, reviews, profiles, presets, audit_export
 from .common import emit
 from ..domain.errors import InputError
 
 COMMANDS = {"batches": batches, "imports": imports, "reconcile": reconcile, "report": reports,
             "rules": rules, "stats": statistics, "jobs": jobs, "audit": audit, "evidence": evidence,
-            "history": history, "maintenance": maintenance, "reviews": reviews, "profiles": profiles, "filters": presets}
+            "history": history, "maintenance": maintenance, "reviews": reviews, "profiles": profiles, "filters": presets, "audit-export": audit_export}
 
 
 def configure(parser):

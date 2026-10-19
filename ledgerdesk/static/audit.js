@@ -27,7 +27,7 @@ const LedgerDeskAudit={
       try{
         const data=await api(`/api/batches/${current.batchId}/audit?${params}`);
         if(own!==revision||context()?.revision!==current.revision)return;
-        page=data.page;pages=data.total_pages;until=data.until_id;
+        page=data.page;pages=data.total_pages;until=data.until_id;$("#audit-until-id").value=until;window.LedgerDeskAuditExport?.update();
         $("#audit-list").innerHTML=data.items.map((item)=>`<article class="audit-item"><time>${escapeHTML(timeLabel(item.created_at))}</time><div><strong>${escapeHTML(data.actions[item.action]||item.action)}</strong><p>${escapeHTML(description(item))}</p>${changeDetails(item.payload)}</div></article>`).join("")||'<p class="hint">当前类型没有操作记录。</p>';
         $("#audit-page-label").textContent=`第 ${page} / ${pages} 页 · 共 ${data.total} 条`;
         $("#audit-prev").disabled=page<=1;$("#audit-next").disabled=page>=pages;
