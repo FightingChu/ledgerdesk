@@ -26,12 +26,12 @@ class ImportRepository:
         con.execute("UPDATE batches SET input_revision=input_revision+1 WHERE id=?", (batch_id,))
 
     @staticmethod
-    def insert(con, import_id, batch_id, side, filename, file_hash, mapping, records, replace_id, aliases):
+    def insert(con, import_id, batch_id, side, filename, file_hash, mapping, records, replace_id, aliases, adapter_id="standard_csv", adapter_version=1):
         con.execute("""INSERT INTO imports(id,batch_id,side,filename,file_sha256,mapping,row_count,created_at,
-            currency_policy,replaces_id,channel_aliases) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            currency_policy,replaces_id,channel_aliases,adapter_id,adapter_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (import_id, batch_id, side, filename, file_hash, json.dumps(mapping, ensure_ascii=False),
                      len(records), now(), records[0]["currency_policy"], replace_id,
-                     json.dumps(aliases, ensure_ascii=False, sort_keys=True)))
+                     json.dumps(aliases, ensure_ascii=False, sort_keys=True), adapter_id, adapter_version))
         con.executemany("INSERT INTO entries(import_id,line,channel,order_id,transaction_id,kind,amount_cents,source_channel) VALUES(?,?,?,?,?,?,?,?)",
                         [(import_id, row["line"], row["channel"], row["order_id"], row["transaction_id"],
                           row["kind"], row["amount_cents"], row["source_channel"]) for row in records])

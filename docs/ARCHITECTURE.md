@@ -1,6 +1,6 @@
-# LedgerDesk 0.7 架构与契约
+# LedgerDesk 0.8 架构与契约
 
-0.7 使用 schema v7，新增处理版本与审计查询索引；批量处理契约见 [批量处理与操作记录](BULK_REVIEWS.md)，查询边界见 [大批次查询与版本契约](PAGINATION.md)。备份和恢复规则见 [本地数据保护与恢复](DATA_MANAGEMENT.md)。
+0.8 使用 schema v8，新增导入适配器身份；导入向导与凭据见 [导入契约](IMPORT_WIZARD.md)。处理版本与审计查询索引沿用 0.7；批量处理契约见 [批量处理与操作记录](BULK_REVIEWS.md)，查询边界见 [大批次查询与版本契约](PAGINATION.md)。备份和恢复规则见 [本地数据保护与恢复](DATA_MANAGEMENT.md)。
 
 项目保持 Python 标准库运行方式，按实际职责逐步拆分。`store.py` 仍提供旧调用入口，HTTP 单项处理从 0.7 起须携带运行和处理版本；原 Python 调用签名保留，新增可选并发参数。
 
@@ -37,7 +37,11 @@ flowchart TD
 | `domain/result_summary.py` | 从不可变结果提取不含源行的查询摘要 |
 | `domain/reviews.py` | 处理状态、共享备注、选择范围和版本参数校验 |
 | `application/batches.py` | 批次创建、标签和归档事务 |
-| `application/imports.py` | 整份导入、备份、撤销与原子替换事务 |
+| `application/imports.py` | 整份导入、校验凭据检查、备份、撤销与原子替换事务 |
+| `application/import_validation.py` | 只读校验、全部错误分页/CSV 和短期签名凭据 |
+| `ingestion/` | 共享编码/CSV/币种/映射候选与行规则 |
+| `adapters/` | 实际支持的标准 CSV v1 协议、注册与解析实现 |
+| `static/import.js` | 四步导入和替换向导、错误分页及字段确认 |
 | `application/reviews.py` | 单项与批量处理、运行和乐观版本检查、事务回滚 |
 | `persistence/batches.py` | 批次状态与列表读写 |
 | `persistence/imports.py` | 有效文件、源行写入和输入版本推进 |
@@ -100,7 +104,7 @@ flowchart TD
 
 ## 数据库和错误响应
 
-schema v7 保留既有全部原列与记录；v6 → v7 增加处理版本与审计索引，较早升级同时建立摘要查询表并回填结果；v5 中的原渠道、模板修订、标签与归档字段继续保留。迁移前使用 SQLite 在线备份；DDL、版本号和外键校验位于同一事务，失败则回滚。
+schema v8 保留既有全部原列与记录；v7 → v8 为导入增加适配器身份与版本，旧版本保持未知；v6 → v7 增加处理版本与审计索引，较早升级同时建立摘要查询表并回填结果；v5 中的原渠道、模板修订、标签与归档字段继续保留。迁移前使用 SQLite 在线备份；DDL、版本号和外键校验位于同一事务，失败则回滚。
 
 API 错误结构统一为：
 
@@ -108,4 +112,4 @@ API 错误结构统一为：
 {"error": "可读提示", "code": "invalid_mapping", "errors": []}
 ```
 
-主要错误码包括 `invalid_input`、`invalid_mapping`、`invalid_aliases`、`invalid_filter`、`stale_result`、`review_conflict`、`invalid_revision`、`invalid_selection`、`batch_archived`、`not_found`、`conflict`、`forbidden` 和 `internal_error`。异常详细堆栈只进入本机日志。
+主要错误码包括 `invalid_input`、`invalid_mapping`、`invalid_aliases`、`invalid_filter`、`stale_result`、`review_conflict`、`stale_validation`、`unsupported_adapter`、`invalid_revision`、`invalid_selection`、`batch_archived`、`not_found`、`conflict`、`forbidden` 和 `internal_error`。异常详细堆栈只进入本机日志。

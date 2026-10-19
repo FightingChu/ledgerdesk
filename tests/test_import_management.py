@@ -177,7 +177,7 @@ class ManagementTests(unittest.TestCase):
         self.assertEqual(detail["imports"][0]["currency_policy"], "default_cny")
         self.assertEqual(detail["imports"][0]["is_active"], 1)
         with upgraded.connect() as con:
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 7)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 8)
             self.assertEqual(con.execute("PRAGMA integrity_check").fetchone()[0], "ok")
             self.assertEqual(con.execute("PRAGMA foreign_key_check").fetchall(), [])
         with closing(sqlite3.connect(next(path.parent.glob("v2.sqlite3.pre-*.sqlite3")))) as con:

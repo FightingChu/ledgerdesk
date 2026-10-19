@@ -178,8 +178,9 @@ class PaginationTests(unittest.TestCase):
         self.assertEqual(page["items"][0]["note"], "retained")
         with self.store.connect() as before, upgraded.connect() as after:
             for table in tables:
-                self.assertEqual([tuple(r) for r in before.execute("SELECT * FROM " + table + " ORDER BY rowid")],
-                                 [tuple(r) for r in after.execute("SELECT * FROM " + table + " ORDER BY rowid")])
+                columns = ",".join(row[1] for row in after.execute("PRAGMA table_info(" + table + ")") if row[1] not in {"adapter_id", "adapter_version"})
+                self.assertEqual([tuple(r) for r in before.execute("SELECT " + columns + " FROM " + table + " ORDER BY rowid")],
+                                 [tuple(r) for r in after.execute("SELECT " + columns + " FROM " + table + " ORDER BY rowid")])
             self.assertEqual(after.execute("SELECT COUNT(*) FROM result_lookup").fetchone()[0], 105)
             self.assertEqual(after.execute("PRAGMA foreign_key_check").fetchall(), [])
 

@@ -15,6 +15,10 @@ from .imports import InputError, preview
 from .domain.filters import ResultFilter
 from .domain.reviews import validate_revision
 from .domain.values import require_text
+from .application.imports import ImportService
+from .adapters.registry import get_adapter
+from .application.import_validation import ImportValidationService
+from .ingestion.mappings import template_suggestions
 from .application.reports import safe_cell, export_csv
 from .application.data_management import DataManagementService
 from .persistence.diagnostics import inspect_database
@@ -214,7 +218,7 @@ def make_server(db_path, port=8765):
                     self.respond(200, data, extra={"Content-Disposition": 'attachment; filename="ledgerdesk-templates.json"'})
                 elif path.startswith("/api/batches/"):
                     self.batch_get(path)
-                elif path in ("/", "/app.js", "/data.js", "/results.js", "/reviews.js", "/audit.js", "/batches.js", "/style.css"):
+                elif path in ("/", "/app.js", "/data.js", "/results.js", "/reviews.js", "/audit.js", "/batches.js", "/import.js", "/style.css"):
                     name, mime = {"/": ("index.html", "text/html; charset=utf-8"),
                                   "/app.js": ("app.js", "text/javascript; charset=utf-8"),
                                   "/data.js": ("data.js", "text/javascript; charset=utf-8"),
@@ -222,6 +226,7 @@ def make_server(db_path, port=8765):
                                   "/reviews.js": ("reviews.js", "text/javascript; charset=utf-8"),
                                   "/audit.js": ("audit.js", "text/javascript; charset=utf-8"),
                                   "/batches.js": ("batches.js", "text/javascript; charset=utf-8"),
+                                  "/import.js": ("import.js", "text/javascript; charset=utf-8"),
                                   "/style.css": ("style.css", "text/css; charset=utf-8")}[path]
                     self.respond(200, (ASSETS / name).read_bytes(), mime)
                 elif path in ("/samples/orders.csv", "/samples/payments.csv"):
@@ -246,7 +251,8 @@ def make_server(db_path, port=8765):
                 if path == "/api/batches":
                     result = {"batch_id": store.create_batch(payload.get("name"), payload.get("description", ""))}
                 elif path == "/api/preview":
-                    result = preview(payload.get("side"), payload.get("content"))
+                    result = get_adapter(payload.get("adapter_id", "standard_csv"), payload.get("adapter_version", 1)).preview(payload.get("side"), payload.get("content"))
+                    result["template_suggestions"] = template_suggestions(payload.get("side"), result["headers"], store.list_templates())
                 elif path == "/api/demo":
                     result = {"batch_id": create_demo(store)}
                 elif path.startswith("/api/batches/"):
@@ -256,10 +262,19 @@ def make_server(db_path, port=8765):
                         return
                     batch_id, action = parts[2:]
                     if action == "import":
-                        result = store.import_file(batch_id, payload.get("side"), payload.get("filename"),
+                        result = ImportService(store).add(batch_id, payload.get("side"), payload.get("filename"),
                                                    payload.get("content"), payload.get("mapping"),
                                                    replace_id=payload.get("replace_id"), reason=payload.get("reason", ""),
-                                                   channel_aliases=payload.get("channel_aliases"))
+                                                   channel_aliases=payload.get("channel_aliases"),
+                                                   adapter_id=payload.get("adapter_id", "standard_csv"),
+                                                   adapter_version=payload.get("adapter_version", 1),
+                                                   receipt=payload.get("receipt"), approvals=import_validation.approvals)
+                    elif action == "validate-import":
+                        result = import_validation.check(batch_id, payload)
+                    elif action == "import-errors":
+                        self.respond(200, import_validation.check(batch_id, payload, download=True), "text/csv; charset=utf-8",
+                                     {"Content-Disposition": 'attachment; filename="ledgerdesk-import-errors.csv"'})
+                        return
                     elif action == "revoke-import":
                         result = store.revoke_import(batch_id, payload.get("import_id"), payload.get("reason"))
                     elif action == "reconcile":
@@ -308,6 +323,7 @@ def make_server(db_path, port=8765):
     server = LocalHTTPServer(("127.0.0.1", port), Handler)
     try:
         store = Store(db_path)
+        import_validation = ImportValidationService(store)
     except Exception:
         server.server_close()
         raise

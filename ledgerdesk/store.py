@@ -91,7 +91,7 @@ class Store(Database):
         with self.connect() as con:
             con.execute("BEGIN")
             batch = self.batch(con, batch_id)
-            files = [dict(row) for row in con.execute("SELECT id,side,filename,file_sha256,row_count,created_at,currency_policy,is_active,revoked_at,revoked_reason,replaces_id,channel_aliases FROM imports WHERE batch_id=? ORDER BY rowid", (batch_id,))]
+            files = [dict(row) for row in con.execute("SELECT id,side,filename,file_sha256,row_count,created_at,currency_policy,is_active,revoked_at,revoked_reason,replaces_id,channel_aliases,adapter_id,adapter_version FROM imports WHERE batch_id=? ORDER BY rowid", (batch_id,))]
             latest = con.execute("SELECT * FROM runs WHERE batch_id=? ORDER BY rowid DESC LIMIT 1", (batch_id,)).fetchone()
             results = []
             if latest:
@@ -115,7 +115,7 @@ class Store(Database):
             con.execute("BEGIN")
             batch = self.batch(con, batch_id)
             files = [dict(row) for row in con.execute("""SELECT id,side,filename,file_sha256,row_count,created_at,
-                currency_policy,is_active,revoked_at,revoked_reason,replaces_id,channel_aliases
+                currency_policy,is_active,revoked_at,revoked_reason,replaces_id,channel_aliases,adapter_id,adapter_version
                 FROM imports WHERE batch_id=? ORDER BY rowid""", (batch_id,))]
             run = ResultQueryRepository.resolve(con, batch_id, None)
             stale = bool(run and run["input_sha256"] != self.source_fingerprint(con, batch_id))

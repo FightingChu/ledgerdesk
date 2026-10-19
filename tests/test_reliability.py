@@ -101,7 +101,7 @@ class SchemaTests(unittest.TestCase):
     def test_new_database_and_reopen(self):
         store = Store(self.path)
         batch = create_demo(store)
-        self.assertEqual(self.version(), 7)
+        self.assertEqual(self.version(), 8)
         self.assertEqual(Store(self.path).detail(batch)["run"]["summary"]["issues"], 5)
         self.assertEqual(list(self.path.parent.glob("*.pre-*.sqlite3")), [])
 
@@ -112,7 +112,7 @@ class SchemaTests(unittest.TestCase):
             con.execute("INSERT INTO imports VALUES('file','old','orders','old.csv','hash','{}',1,'2026-10-18')")
             con.commit()
         store = Store(self.path)
-        self.assertEqual(self.version(), 7)
+        self.assertEqual(self.version(), 8)
         self.assertEqual(store.detail("old")["imports"][0]["currency_policy"], "legacy_unverified")
         backups = list(self.path.parent.glob("*.pre-*.sqlite3"))
         self.assertEqual(len(backups), 1)

@@ -1,7 +1,7 @@
 "use strict";
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
-const state = { token: "", batches: [], templates: [], batch: null, filter: "issues", importSide: "orders", upload: null, currentCase: null, busy: false, importContext: null, revokeContext: null, previewMapping: null, previewRevision: 0, pageRevision: 0, historyRun: null, historyPage: 1, historyPages: 1, historyRevision: 0, comparison: null, comparisonPage: 1, comparisonPages: 1, comparisonRevision: 0 };
+const state = { token: "", batches: [], templates: [], batch: null, filter: "issues", busy: false, revokeContext: null, pageRevision: 0, historyRun: null, historyPage: 1, historyPages: 1, historyRevision: 0, comparison: null, comparisonPage: 1, comparisonPages: 1, comparisonRevision: 0 };
 const fieldLabels = { order_id: "订单号", transaction_id: "渠道流水号", amount: "金额（元）", event_type: "类型：sale / refund", channel: "渠道" };
 const reviewLabels = { pending: "待处理", in_progress: "处理中", resolved: "已处理" };
 const escapeHTML = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -30,38 +30,9 @@ async function refreshList() {
 }
 function renderBatches(){batchView.render();}
 
-function templateOptions(side) {
-  return `<option value="">不使用模板</option>` + state.templates.filter((item)=>item.side===side)
-    .map((item)=>`<option value="${item.id}">${escapeHTML(item.name)}</option>`).join("");
-}
 async function refreshTemplates(){state.templates=(await api("/api/templates")).templates;}
 function renderTemplates(){
   $("#templates-list").innerHTML=state.templates.length?state.templates.map((item)=>`<article class="template-card"><h3>${escapeHTML(item.name)} <span class="badge neutral">${item.side==="orders"?"业务单":"支付账单"} · 修订 ${item.revision}</span></h3><p class="hint">${Object.entries(JSON.parse(item.mapping)).map(([field,column])=>`${fieldLabels[field]||field} → ${column}`).map(escapeHTML).join("；")}</p><div class="template-save"><input aria-label="${escapeHTML(item.name)}的副本名称" data-copy-name="${item.id}" maxlength="80" placeholder="新模板名称"><button class="button secondary small" data-copy-template="${item.id}">复制</button><button class="button secondary small" data-delete-template="${item.id}">删除</button></div></article>`).join(""):'<p class="hint">暂无模板。在导入预览中选择列后可保存模板。</p>';
-}
-function currentMapping() {
-  return Object.fromEntries([...$("#mapping-fields").querySelectorAll("select")].map((select)=>[select.name,select.value]));
-}
-function parseAliases() {
-  const raw=$("#channel-aliases").value.trim();
-  if (!raw) return {};
-  const aliases=Object.create(null);
-  for(const line of raw.split(/\r?\n/).filter((item)=>item.trim())){
-    const parts=line.split("=");
-    if(parts.length!==2||!parts[0].trim()||!parts[1].trim())throw new Error("渠道别名每行填写：原渠道 = 统一渠道");
-    const source=parts[0].trim(),target=parts[1].trim();
-    if(Object.hasOwn(aliases,source))throw new Error("原渠道不能重复");
-    aliases[source]=target;
-  }
-  return aliases;
-}
-function formatAliases(aliases){return Object.entries(aliases).map(([source,target])=>`${source} = ${target}`).join("\n");}
-function applyTemplate(){
-  if(!state.previewMapping)return;
-  const template=state.templates.find((item)=>item.id===$("#template-select").value&&item.side===state.importSide);
-  const mapping=template?JSON.parse(template.mapping):state.previewMapping;
-  for(const select of $("#mapping-fields").querySelectorAll("select"))select.value=typeof mapping[select.name]==="string"?mapping[select.name]:"";
-  $("#channel-aliases").value=template?formatAliases(JSON.parse(template.channel_aliases||"{}")):"";
-  $("#template-name").value=template?template.name:"";
 }
 function renderHistory(data) {
   const history=data.history||[];
@@ -146,56 +117,9 @@ async function openBatch(id, reset = true) {
   auditView.reset();
   await renderResults();
 }
-let resultView,reviewView,auditView,batchView;
+let resultView,reviewView,auditView,batchView,importView;
 function renderResults(){return resultView.load();}
-function startImport(side, replaceId=null) {
-  if (state.busy || state.batch.batch.archived) return;
-  const original=state.batch.imports.find((item)=>item.id===replaceId);
-  state.importContext={batchId:state.batch.batch.id,replaceId};
-  state.previewRevision++;
-  state.importSide=side; state.upload=null; state.previewMapping=null;
-  $("#import-form").reset(); $("#mapping-area").hidden=true; $("#mapping-warning").hidden=true; $("#import-errors").hidden=true; $("#confirm-import").disabled=true;
-  $("#replacement-reason-field").hidden=!replaceId;
-  $("#replacement-reason").required=!!replaceId;
-  $("#template-select").innerHTML=templateOptions(side);
-  $("#channel-aliases").value="";
-  $("#template-name").value="";
-  $("#confirm-import").textContent=replaceId?"确认替换":"确认导入";
-  $("#import-title").textContent=(replaceId?"替换":"导入")+(side==="orders"?"业务单":"支付账单");
-  $("#import-help").textContent=side==="orders"?"每个渠道和订单号应有一条业务单。金额填写扣除预计退款后的净到账，不扣手续费。":"每行一笔收款或退款，金额填正数；退款类型使用 refund。流水号在同一渠道内应唯一。";
-  if (original) $("#import-help").textContent=`替换 ${original.filename}。校验通过后原子切换有效文件，保留旧文件记录。可选择原 CSV 重新指定字段，替换前自动备份。`;
-  $("#template-link").href=`/samples/${side}.csv`;
-  $("#import-dialog").showModal();
-}
-async function previewFile() {
-  const previewRevision=++state.previewRevision;
-  const file=$("#csv-file").files[0]; state.upload=null; $("#confirm-import").disabled=true; $("#import-errors").hidden=true; $("#mapping-area").hidden=true;
-  if (!file) return;
-  if (!file.name.toLowerCase().endsWith(".csv") || file.size>5*1024*1024) { notify("请选择不超过 5 MiB 的 CSV 文件",true); return; }
-  const selectedSide=state.importSide;
-  const content=await new Promise((resolve,reject)=>{const reader=new FileReader(); reader.onload=()=>resolve(reader.result.split(",")[1]); reader.onerror=()=>reject(new Error("文件读取失败")); reader.readAsDataURL(file);});
-  const preview=await api("/api/preview",{side:selectedSide,content});
-  if (previewRevision!==state.previewRevision || !$("#import-dialog").open || $("#csv-file").files[0]!==file || state.importSide!==selectedSide) return;
-  state.upload={filename:file.name,content};
-  $("#mapping-fields").innerHTML=Object.entries(preview.mapping).map(([field,header])=>`<label class="field">${fieldLabels[field]}<select name="${field}" required><option value="">请选择列</option>${preview.headers.map((name)=>`<option value="${escapeHTML(name)}" ${name===header?"selected":""}>${escapeHTML(name)}</option>`).join("")}</select></label>`).join("");
-  const ambiguous=Object.entries(preview.ambiguous_fields);
-  $("#mapping-warning").hidden=!ambiguous.length;
-  $("#mapping-warning").textContent=ambiguous.map(([field,columns])=>`${fieldLabels[field]}有多个候选列（${columns.join("、")}），请手动选择。`).join(" ");
-  state.previewMapping=preview.mapping;
-  applyTemplate();
-  $("#preview-count").textContent=`${preview.row_count} 行数据`;
-  $("#preview-head").innerHTML=`<tr>${preview.headers.map((header)=>`<th>${escapeHTML(header)}</th>`).join("")}</tr>`;
-  $("#preview-body").innerHTML=preview.rows.map((row)=>`<tr>${preview.headers.map((header)=>`<td>${escapeHTML(row[header])}</td>`).join("")}</tr>`).join("");
-  const currency=preview.currency;
-  $("#currency-summary").textContent=currency.defaulted ? "未检测到币种列：按工具约定默认人民币 CNY，不做汇兑。" : `币种列：${currency.columns.join("、")}；文件中的值：${currency.values.map((value)=>value||"（空白）").join("、")}${currency.value_count>currency.values.length?"（仅列出前 20 种值）":""}。${currency.valid?"统一按人民币 CNY 核对，不做汇兑。":"含无效币种，禁止导入。"}`;
-  $("#currency-summary").classList.toggle("warning",!currency.valid);
-  if (!currency.valid) {
-    state.upload=null;
-    $("#import-errors").textContent=`发现 ${currency.error_count} 行币种错误，整份文件不可导入。\n`+currency.errors.map((item)=>`第 ${item.line} 行：${item.message}`).join("\n");
-    $("#import-errors").hidden=false;
-  }
-  $("#mapping-area").hidden=false; $("#confirm-import").disabled=!currency.valid;
-}
+function startImport(side,replaceId=null){importView.start(side,replaceId);}
 function openCase(key,historicalRun=null){return reviewView.openCase(key,historicalRun);}
 
 $("#new-batch").addEventListener("click",()=>{$("#batch-form").reset();$("#new-dialog").showModal();});
@@ -207,14 +131,10 @@ $("#batch-list").addEventListener("keydown",(event)=>{if(event.key==="Enter"||ev
 $$(".close-dialog").forEach((button)=>button.addEventListener("click",()=>{if(!state.busy)button.closest("dialog").close();}));
 $$("dialog").forEach((dialog)=>dialog.addEventListener("cancel",(event)=>{if(state.busy)event.preventDefault();}));
 $$(".import-trigger").forEach((button)=>button.addEventListener("click",()=>startImport(button.dataset.side)));
-$("#csv-file").addEventListener("change",()=>previewFile().catch((error)=>notify(error.message,true)));
-$("#import-form").addEventListener("submit",(event)=>{event.preventDefault();if(!state.upload)return;let aliases;try{aliases=parseAliases();}catch(error){notify(error.message,true);return;}const context={...state.importContext};const mapping=currentMapping();const payload={side:state.importSide,...state.upload,mapping,channel_aliases:aliases,replace_id:context.replaceId,reason:$("#replacement-reason").value};action(event.submitter,async()=>{try{const result=await api(`/api/batches/${context.batchId}/import`,payload);$("#import-dialog").close();await openBatch(context.batchId,false);await refreshList();notify(result.duplicate?"有效文件和映射均未变化，本次未重复入库":context.replaceId?"文件已替换，旧记录已保留，请重新核对":`已导入 ${result.row_count} 行，请执行核对`);}catch(error){$("#import-errors").textContent=error.message+(error.errors?.length?"\n"+error.errors.map((item)=>`第 ${item.line} 行：${item.message}`).join("\n"):"");$("#import-errors").hidden=false;}});});
 $("#reconcile").addEventListener("click",(event)=>action(event.currentTarget,async()=>{const result=await api(`/api/batches/${state.batch.batch.id}/reconcile`,{});await openBatch(state.batch.batch.id,false);await refreshList();notify(result.reused?"源数据未变，已显示原核对结果":"核对完成");}));
 $$("[data-filter]").forEach((button)=>button.addEventListener("click",()=>{state.filter=button.dataset.filter;$("#reason-filter").value="all";$("#status-filter").value=state.filter==="issues"?"outstanding":"all";renderResults();}));
 $("#reason-filter").addEventListener("change",renderResults);
 $("#status-filter").addEventListener("change",renderResults);
-$("#template-select").addEventListener("change",applyTemplate);
-$("#save-template").addEventListener("click",(event)=>action(event.currentTarget,async()=>{const name=$("#template-name").value.trim();if(!name)throw new Error("请填写模板名称");const result=await api("/api/templates",{name,side:state.importSide,mapping:currentMapping(),channel_aliases:parseAliases()});await refreshTemplates();$("#template-select").innerHTML=templateOptions(state.importSide);$("#template-select").value=result.id;notify(`映射模板已保存，修订 ${result.revision}`);}));
 $("#history-dialog").addEventListener("close",()=>{state.historyRevision++;});
 $("#history-rows").addEventListener("click",(event)=>{const button=event.target.closest("[data-history-case]");if(button)openCase(button.dataset.historyCase,state.historyRun).catch((error)=>notify(error.message,true));});
 $("#history-prev").addEventListener("click",()=>viewHistory(state.historyRun,state.historyPage-1).catch((error)=>notify(error.message,true)));
@@ -231,6 +151,7 @@ $("#revoke-form").addEventListener("submit",(event)=>{event.preventDefault();con
 $("#manage-templates").addEventListener("click",(event)=>action(event.currentTarget,async()=>{await refreshTemplates();renderTemplates();$("#template-errors").hidden=true;$("#templates-dialog").showModal();}));
 $("#templates-list").addEventListener("click",(event)=>{const copy=event.target.closest("[data-copy-template]"),remove=event.target.closest("[data-delete-template]");if(!copy&&!remove)return;action(event.target,async()=>{const id=copy?.dataset.copyTemplate||remove.dataset.deleteTemplate;if(copy){const name=$("#templates-list").querySelector(`[data-copy-name="${id}"]`).value;await api("/api/templates/copy",{id,name});}else await api("/api/templates/delete",{id});await refreshTemplates();renderTemplates();notify(copy?"模板副本已创建":"模板已删除，已有导入数据保留");});});
 $("#templates-file").addEventListener("change",(event)=>{const file=event.target.files[0];if(!file)return;action(null,async()=>{try{if(file.size>256*1024)throw new Error("模板文件不能超过 256 KiB");let bundle;try{bundle=JSON.parse(await file.text());}catch{throw new Error("模板文件必须是有效 JSON");}await api("/api/templates/import",{bundle});await refreshTemplates();renderTemplates();$("#template-errors").hidden=true;notify("模板文件已导入");}catch(error){$("#template-errors").textContent=error.message;$("#template-errors").hidden=false;}finally{event.target.value="";}});});
+importView=LedgerDeskImport.initialize({api,action,notify,escapeHTML,state,fieldLabels,refreshTemplates,onImported:async(batchId)=>{await openBatch(batchId,false);await refreshList();}});
 batchView=LedgerDeskBatches.initialize({api,action,notify,escapeHTML,timeLabel,state,onOpen:openBatch,onRefreshList:refreshList});
 reviewView=LedgerDeskReviews.initialize({api,action,notify,escapeHTML,reviewLabels,state,onRefresh:async()=>{if(state.batch)await openBatch(state.batch.batch.id,false);}});
 auditView=LedgerDeskAudit.initialize({api,notify,escapeHTML,timeLabel,reviewLabels,context:()=>state.batch?{batchId:state.batch.batch.id,revision:state.pageRevision}:null});

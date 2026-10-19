@@ -155,7 +155,7 @@ class WorkflowTests(unittest.TestCase):
         upgraded = Store(path)
         self.assertEqual(upgraded.detail("old")["batch"]["description"], "keep")
         with upgraded.connect() as con:
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 7)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 8)
             self.assertEqual(con.execute("PRAGMA foreign_key_check").fetchall(), [])
 
 

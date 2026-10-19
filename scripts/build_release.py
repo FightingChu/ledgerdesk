@@ -44,6 +44,22 @@ RELEASE_FILES = (
     "tests/test_review_http.py",
     "tests/fixtures/schema_v6.sql",
     "docs/BULK_REVIEWS.md",
+    "ledgerdesk/ingestion/__init__.py",
+    "ledgerdesk/ingestion/reading.py",
+    "ledgerdesk/ingestion/currency.py",
+    "ledgerdesk/ingestion/mappings.py",
+    "ledgerdesk/ingestion/validation.py",
+    "ledgerdesk/adapters/__init__.py",
+    "ledgerdesk/adapters/base.py",
+    "ledgerdesk/adapters/registry.py",
+    "ledgerdesk/adapters/standard_csv.py",
+    "ledgerdesk/application/import_validation.py",
+    "ledgerdesk/static/import.js",
+    "tests/test_ingestion.py",
+    "tests/test_import_validation.py",
+    "tests/test_import_validation_http.py",
+    "tests/fixtures/schema_v7.sql",
+    "docs/IMPORT_WIZARD.md",
 )
 
 
