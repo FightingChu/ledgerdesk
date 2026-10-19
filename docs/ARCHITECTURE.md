@@ -1,4 +1,6 @@
-# LedgerDesk 0.4 架构与契约
+# LedgerDesk 0.5 架构与契约
+
+0.5 沿用 schema v5，数据保护用例不升级或覆盖现有数据。备份和恢复规则见 [本地数据保护与恢复](DATA_MANAGEMENT.md)。
 
 项目保持 Python 标准库运行方式，按实际职责逐步拆分。`store.py` 仍提供旧调用入口，HTTP、CLI 和已有测试不需要同时改写。
 
@@ -25,6 +27,8 @@ flowchart TD
 | `domain/errors.py` | 用户输入错误及稳定错误码 |
 | `application/reconciliation.py` | 在事务内加载输入、核对、写入运行及审计 |
 | `application/reports.py` | CSV 格式、金额显示和公式转义 |
+| `application/data_management.py` | 手动备份管理、限定路径选择和新目录恢复 |
+| `persistence/diagnostics.py` | 支持版本、结构、完整性、外键和数量的只读检查 |
 | `persistence/database.py` | 数据库生命周期、事务和在线备份 |
 | `persistence/migrations.py` | 显式升级路径、外键验证和版本保护 |
 | `persistence/templates.py` | 模板修订、复制、删除和文件导入导出 |

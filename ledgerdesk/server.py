@@ -14,6 +14,8 @@ from . import __version__
 from .imports import InputError, preview
 from .domain.filters import ResultFilter
 from .application.reports import safe_cell, export_csv
+from .application.data_management import DataManagementService
+from .persistence.diagnostics import inspect_database
 from .store import LABELS, REVIEW_LABELS, Store
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -55,6 +57,7 @@ def create_demo(store):
 def make_server(db_path, port=8765):
     token = secrets.token_urlsafe(32)
     identity = instance_identity(db_path)
+    data_manager = DataManagementService(db_path)
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "LedgerDesk/" + __version__
@@ -124,6 +127,14 @@ def make_server(db_path, port=8765):
                         "batches": store.list_batches(), "reason_labels": LABELS, "review_labels": REVIEW_LABELS})
                 elif path == "/api/batches":
                     self.respond(200, {"batches": store.list_batches()})
+                elif path == "/api/data":
+                    self.respond(200, {"backups": data_manager.list_backups(), "backup_directory": str(data_manager.backup_dir),
+                                       "restore_directory": str(data_manager.restore_dir)})
+                elif path == "/api/data/diagnostics":
+                    self.respond(200, inspect_database(db_path))
+                elif path == "/api/data/diagnostics/export":
+                    report = json.dumps(inspect_database(db_path), ensure_ascii=False, indent=2).encode("utf-8")
+                    self.respond(200, report, extra={"Content-Disposition": 'attachment; filename="ledgerdesk-diagnostics.json"'})
                 elif path == "/api/templates":
                     self.respond(200, {"templates": store.list_templates()})
                 elif path == "/api/templates/export":
@@ -156,9 +167,10 @@ def make_server(db_path, port=8765):
                     else:
                         detail["history"] = store.history(parts[2])
                         self.respond(200, detail)
-                elif path in ("/", "/app.js", "/style.css"):
+                elif path in ("/", "/app.js", "/data.js", "/style.css"):
                     name, mime = {"/": ("index.html", "text/html; charset=utf-8"),
                                   "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+                                  "/data.js": ("data.js", "text/javascript; charset=utf-8"),
                                   "/style.css": ("style.css", "text/css; charset=utf-8")}[path]
                     self.respond(200, (ASSETS / name).read_bytes(), mime)
                 elif path in ("/samples/orders.csv", "/samples/payments.csv"):
@@ -219,6 +231,12 @@ def make_server(db_path, port=8765):
                     result = store.copy_template(payload.get("id"), payload.get("name"))
                 elif path == "/api/templates/import":
                     result = store.import_templates(payload.get("bundle"))
+                elif path == "/api/data/backup":
+                    result = data_manager.create_backup()
+                elif path == "/api/data/verify":
+                    result = data_manager.verify_backup(payload.get("id"))
+                elif path == "/api/data/restore":
+                    result = data_manager.restore_backup(payload.get("id"), payload.get("workspace_name"))
                 else:
                     self.respond(404, {"error": "接口不存在"})
                     return

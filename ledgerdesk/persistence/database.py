@@ -61,6 +61,8 @@ class Database:
         if not path.is_file():
             raise InputError("备份源数据库不存在，请检查 --data-dir；未创建空数据库")
         with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=20)) as source:
+            # Counts and copied pages must refer to the same committed snapshot.
+            source.execute("BEGIN")
             version = cls._check_version(source)
             if version == 0:
                 raise InputError("备份源不是已初始化的 LedgerDesk 数据库")
@@ -86,6 +88,9 @@ class Database:
         try:
             with closing(sqlite3.connect(destination)) as target:
                 source.backup(target)
+                # Backups are standalone files. A read-only inspection must not
+                # require or leave journal sidecars named after a staging file.
+                target.execute("PRAGMA journal_mode=DELETE")
         except BaseException:
             destination.unlink(missing_ok=True)
             raise

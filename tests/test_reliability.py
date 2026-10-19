@@ -13,6 +13,7 @@ import zipfile
 from unittest.mock import patch
 
 from ledgerdesk import __main__ as cli
+from ledgerdesk import __version__
 from ledgerdesk.imports import InputError, parse, preview
 from ledgerdesk.server import create_demo, make_server
 from ledgerdesk.store import Store
@@ -199,14 +200,14 @@ class StartupTests(unittest.TestCase):
 
     def test_same_workspace_reuses_identified_instance(self):
         from ledgerdesk.server import instance_identity
-        browser, make, _ = self.invoke({**instance_identity(self.db), "version": "0.4.0"})
+        browser, make, _ = self.invoke({**instance_identity(self.db), "version": __version__})
         browser.assert_called_once()
         make.assert_not_called()
 
     def test_other_workspace_conflict_never_opens_page(self):
         from ledgerdesk.server import instance_identity
         with self.assertRaises(SystemExit) as exc:
-            self.invoke({**instance_identity(self.db.parent / "other.sqlite3"), "version": "0.4.0"})
+            self.invoke({**instance_identity(self.db.parent / "other.sqlite3"), "version": __version__})
         self.assertEqual(exc.exception.code, 1)
         self.assertFalse(self.db.exists())
 
@@ -216,6 +217,12 @@ class StartupTests(unittest.TestCase):
                 with self.assertRaises(SystemExit) as exc:
                     self.invoke(payload)
                 self.assertEqual(exc.exception.code, 1)
+
+    def test_older_release_requires_restart_and_never_opens_page(self):
+        from ledgerdesk.server import instance_identity
+        with self.assertRaises(SystemExit) as result:
+            self.invoke({**instance_identity(self.db), "version": "0.4.0"})
+        self.assertEqual(result.exception.code, 1)
 
     def test_occupied_port_does_not_create_requested_database(self):
         server = make_server(self.db, 0)

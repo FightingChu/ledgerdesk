@@ -12,6 +12,8 @@ from .imports import InputError
 from .server import ROOT, instance_identity, make_server
 from .store import Store
 from .config import Settings
+from .persistence.diagnostics import inspect_database
+from .application.data_management import restore_database
 
 
 def main():
@@ -22,8 +24,16 @@ def main():
     parser.add_argument("--no-open", dest="open", action="store_false", default=None, help="启动时不打开浏览器")
     parser.add_argument("--config", type=Path, help="读取 version=1 的本地 JSON 配置")
     parser.add_argument("--check-config", action="store_true", help="校验最终配置后退出，不打开数据库")
-    parser.add_argument("--backup", type=Path, help="备份当前数据库到新文件后退出")
+    operation = parser.add_mutually_exclusive_group()
+    operation.add_argument("--backup", type=Path, help="备份当前数据库到新文件后退出")
+    operation.add_argument("--diagnose", action="store_true", help="只读检查数据库并输出不含账单内容的 JSON 报告")
+    operation.add_argument("--restore", type=Path, help="读取指定备份，恢复到全新的数据目录后退出")
+    parser.add_argument("--restore-to", type=Path, help="恢复目标，必须是尚不存在的新数据目录")
     args = parser.parse_args()
+    if bool(args.restore) != bool(args.restore_to):
+        parser.error("--restore 和 --restore-to 必须一起使用")
+    if args.check_config and (args.backup or args.restore or args.diagnose):
+        parser.error("配置校验不能与数据库操作同时执行")
     try:
         settings = Settings.load(args.config, ROOT / "data")
     except InputError as exc:
@@ -38,6 +48,19 @@ def main():
     if args.check_config:
         print(json.dumps({"version": 1, "port": args.port, "data_dir": str(args.data_dir.resolve()),
                           "open_browser": args.open}, ensure_ascii=False))
+        return
+    if args.diagnose:
+        report = inspect_database(db)
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        if report["status"] != "ok":
+            raise SystemExit(1)
+        return
+    if args.restore:
+        try:
+            report = restore_database(args.restore, args.restore_to)
+        except (InputError, OSError, sqlite3.Error) as exc:
+            parser.exit(1, str(exc) + "\n")
+        print(json.dumps(report, ensure_ascii=False, indent=2))
         return
     if args.backup:
         try:
@@ -58,6 +81,8 @@ def main():
                     and existing.get("instance_protocol") == expected["instance_protocol"]):
                 if existing.get("workspace_id") != expected["workspace_id"]:
                     parser.exit(1, "该端口的 LedgerDesk 使用不同的数据目录；请使用 --port 8766。\n")
+                if existing.get("version") != __version__:
+                    parser.exit(1, "该端口正在运行另一个版本的 LedgerDesk；请先停止原服务，或使用 --port 8766。\n")
                 webbrowser.open(f"http://127.0.0.1:{args.port}")
                 print("LedgerDesk is already running; opened its page.")
                 return
