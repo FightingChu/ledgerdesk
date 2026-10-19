@@ -1,7 +1,7 @@
 "use strict";
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
-const state = { token: "", batches: [], templates: [], batch: null, filter: "issues", busy: false, revokeContext: null, pageRevision: 0, historyRun: null, historyPage: 1, historyPages: 1, historyRevision: 0, comparison: null, comparisonPage: 1, comparisonPages: 1, comparisonRevision: 0 };
+const state = { reportProfile:null, token: "", batches: [], templates: [], batch: null, filter: "issues", busy: false, revokeContext: null, pageRevision: 0, historyRun: null, historyPage: 1, historyPages: 1, historyRevision: 0, comparison: null, comparisonPage: 1, comparisonPages: 1, comparisonRevision: 0 };
 const fieldLabels = { order_id: "订单号", transaction_id: "渠道流水号", amount: "金额（元）", event_type: "类型：sale / refund", channel: "渠道" };
 const reviewLabels = { pending: "待处理", in_progress: "处理中", resolved: "已处理" };
 const escapeHTML = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -96,6 +96,7 @@ async function openBatch(id, reset = true) {
   $("#sample-notice").hidden = !data.batch.is_sample;
   $("#archived-notice").hidden=!data.batch.archived;
   $("#reconcile").hidden=!!data.batch.archived;
+  $("#queue-reconcile").hidden=!!data.batch.archived;
   $$(".import-trigger").forEach((button)=>button.hidden=!!data.batch.archived);
   $("#stale-notice").hidden = !data.stale;
   $("#legacy-currency-notice").hidden = !data.imports.some((item) => item.is_active && item.currency_policy === "legacy_unverified");
@@ -117,7 +118,7 @@ async function openBatch(id, reset = true) {
   auditView.reset();
   await renderResults();
 }
-let resultView,reviewView,auditView,batchView,importView;
+let resultView,reviewView,auditView,batchView,importView,reportView,presetView;
 function renderResults(){return resultView.load();}
 function startImport(side,replaceId=null){importView.start(side,replaceId);}
 function openCase(key,historicalRun=null){return reviewView.openCase(key,historicalRun);}
@@ -153,11 +154,20 @@ $("#templates-list").addEventListener("click",(event)=>{const copy=event.target.
 $("#templates-file").addEventListener("change",(event)=>{const file=event.target.files[0];if(!file)return;action(null,async()=>{try{if(file.size>256*1024)throw new Error("模板文件不能超过 256 KiB");let bundle;try{bundle=JSON.parse(await file.text());}catch{throw new Error("模板文件必须是有效 JSON");}await api("/api/templates/import",{bundle});await refreshTemplates();renderTemplates();$("#template-errors").hidden=true;notify("模板文件已导入");}catch(error){$("#template-errors").textContent=error.message;$("#template-errors").hidden=false;}finally{event.target.value="";}});});
 importView=LedgerDeskImport.initialize({api,action,notify,escapeHTML,state,fieldLabels,refreshTemplates,onImported:async(batchId)=>{await openBatch(batchId,false);await refreshList();}});
 batchView=LedgerDeskBatches.initialize({api,action,notify,escapeHTML,timeLabel,state,onOpen:openBatch,onRefreshList:refreshList});
-reviewView=LedgerDeskReviews.initialize({api,action,notify,escapeHTML,reviewLabels,state,onRefresh:async()=>{if(state.batch)await openBatch(state.batch.batch.id,false);}});
+const evidenceView=LedgerDeskEvidence.initialize({api,notify,escapeHTML});
+reviewView=LedgerDeskReviews.initialize({api,action,notify,escapeHTML,reviewLabels,state,evidenceView,onRefresh:async()=>{if(state.batch)await openBatch(state.batch.batch.id,false);}});
 auditView=LedgerDeskAudit.initialize({api,notify,escapeHTML,timeLabel,reviewLabels,context:()=>state.batch?{batchId:state.batch.batch.id,revision:state.pageRevision}:null});
 resultView=LedgerDeskResults.initialize({api,notify,escapeHTML,reviewLabels,
-  context:()=>state.batch?{batch:state.batch,revision:state.pageRevision,group:state.filter}:null,
+  context:()=>state.batch?{batch:state.batch,revision:state.pageRevision,group:state.filter,profileId:state.reportProfile}:null,
   onPage:reviewView.page,onInvalidate:reviewView.invalidate,selectionCell:reviewView.selectionCell,isBusy:()=>state.busy,
   onCase:openCase,onRefresh:async()=>{if(state.batch&&!state.busy)await openBatch(state.batch.batch.id,false);}});
 LedgerDeskData.initialize({api,action,timeLabel,escapeHTML,notify});
-api("/api/bootstrap").then(async(data)=>{state.token=data.token;state.templates=(await api("/api/templates")).templates;$("#app-version").textContent=`v${data.version}`;await refreshList();}).catch((error)=>notify("本地服务连接失败："+error.message,true));
+const currentQuery=()=>resultView.query();
+LedgerDeskWorkbench.initialize({api,action,notify,escapeHTML,state,query:currentQuery,onOpen:openBatch});
+LedgerDeskRules.initialize({api,action,notify,state,onRefresh:async(id)=>{await openBatch(id,false);await refreshList();}});
+reportView=LedgerDeskReports.initialize({api,action,notify,escapeHTML,state,onChange:()=>resultView.exports()});
+presetView=LedgerDeskPresets.initialize({api,action,notify,state,query:currentQuery,onApply:(p)=>{state.filter=p.group;$("#reason-filter").value=p.reason;$("#status-filter").value=p.status;$("#search").value=p.q;renderResults();}});
+LedgerDeskTasks.initialize({api,action,notify,escapeHTML,state,query:currentQuery});
+LedgerDeskBackupPolicy.initialize({api,action,notify});
+
+api("/api/bootstrap").then(async(data)=>{state.token=data.token;state.templates=(await api("/api/templates")).templates;$("#app-version").textContent=`v${data.version}`;await refreshList();await Promise.all([reportView.load(),presetView.load()]);}).catch((error)=>notify("本地服务连接失败："+error.message,true));

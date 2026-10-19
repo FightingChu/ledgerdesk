@@ -155,10 +155,12 @@ class PaginationTests(unittest.TestCase):
         tables = ("batches", "imports", "entries", "runs", "results", "reviews", "audit", "mapping_templates")
         row = self.store.result_page(self.batch)["items"][0]
         self.store.review(self.batch, row["case_key"], row["evidence_sha256"], "resolved", "retained")
+        table_columns = {}
         with self.store.connect() as source, closing(sqlite3.connect(path)) as target:
             target.executescript((Path(__file__).parent / "fixtures/schema_v5.sql").read_text(encoding="utf-8"))
             for table in tables:
                 columns = ",".join(row[1] for row in target.execute("PRAGMA table_info(" + table + ")"))
+                table_columns[table] = columns
                 rows = source.execute("SELECT " + columns + " FROM " + table + " ORDER BY rowid").fetchall()
                 if rows:
                     target.executemany("INSERT INTO " + table + " VALUES(" + ",".join("?" for _ in rows[0]) + ")", [tuple(r) for r in rows])
@@ -178,7 +180,7 @@ class PaginationTests(unittest.TestCase):
         self.assertEqual(page["items"][0]["note"], "retained")
         with self.store.connect() as before, upgraded.connect() as after:
             for table in tables:
-                columns = ",".join(row[1] for row in after.execute("PRAGMA table_info(" + table + ")") if row[1] not in {"adapter_id", "adapter_version"})
+                columns = table_columns[table]
                 self.assertEqual([tuple(r) for r in before.execute("SELECT " + columns + " FROM " + table + " ORDER BY rowid")],
                                  [tuple(r) for r in after.execute("SELECT " + columns + " FROM " + table + " ORDER BY rowid")])
             self.assertEqual(after.execute("SELECT COUNT(*) FROM result_lookup").fetchone()[0], 105)

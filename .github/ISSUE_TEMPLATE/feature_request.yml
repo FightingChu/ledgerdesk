@@ -1,0 +1,16 @@
+name: 功能请求
+description: 从实际流程描述需要解决的问题
+body:
+  - type: textarea
+    id: workflow
+    attributes:
+      label: 当前流程与具体问题
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: 可以验证的完成标准
+      description: 描述需要得到的结果，不上传真实用户数据。
+    validations:
+      required: true

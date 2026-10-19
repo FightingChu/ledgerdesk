@@ -1,0 +1,4 @@
+order_id,transaction_id,amount,event_type,channel
+A,P1,100,sale,x
+A,R1,10,refund,x
+A,R2,30,refund,x

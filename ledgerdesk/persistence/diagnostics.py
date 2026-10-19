@@ -2,6 +2,7 @@
 from contextlib import closing
 from pathlib import Path
 import sqlite3
+import json
 from .. import __version__
 from .migrations import SCHEMA_VERSION
 
@@ -58,6 +59,18 @@ def inspect_database(path):
                 expected["reviews"].add("revision")
             if version >= 8:
                 expected["imports"].update(("adapter_id", "adapter_version"))
+            if version >= 9:
+                expected["batches"].add("rule_id")
+                expected["runs"].add("rule_snapshot")
+                expected["rule_revisions"] = {"id","name","revision","tolerance_cents","created_at"}
+                expected["report_profiles"] = {"id","name","revision","columns","created_at"}
+                expected["saved_filters"] = {"id","name","payload","revision","updated_at"}
+                expected["result_metrics"] = {"run_id","case_key","channel","expected","actual","difference","sales","refunds"}
+                expected["result_sources"] = {"run_id","case_key","kind","position","payload"}
+            if version >= 10:
+                expected["jobs"] = {"id","kind","batch_id","payload","dedupe_key","state","attempt","progress","total","phase","cancel_requested","created_at","updated_at","result","error"}
+                expected["preferences"] = {"key","payload","revision"}
+                expected["managed_backups"] = {"id","sha256","created_at"}
             actual_tables = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             for table, columns in expected.items():
                 if table not in actual_tables or not columns.issubset({row[1] for row in con.execute("PRAGMA table_info(" + table + ")")}):
@@ -73,6 +86,15 @@ def inspect_database(path):
                 report["index_coverage"] = report["counts"]["result_lookup"] == report["counts"]["results"]
                 if not report["index_coverage"]:
                     report["status"] = "invalid"
-    except (sqlite3.Error, OSError):
+            if version >= 9:
+                report["metric_coverage"] = report["counts"]["result_metrics"] == report["counts"]["results"]
+                expected_sources = 0
+                for (payload,) in con.execute("SELECT summary FROM result_lookup"):
+                    summary = json.loads(payload)
+                    expected_sources += summary["source_count"] + summary["duplicate_count"]
+                report["source_coverage"] = report["counts"]["result_sources"] == expected_sources
+                if not report["metric_coverage"] or not report["source_coverage"]:
+                    report["status"] = "invalid"
+    except (sqlite3.Error, OSError, ValueError, TypeError, KeyError):
         report["status"] = "invalid"
     return report

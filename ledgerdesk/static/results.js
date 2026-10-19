@@ -15,8 +15,11 @@ const LedgerDeskResults={
       const current=context();if(!current)return;
       const visible=!!current.batch.run&&!current.batch.stale;
       find("#export-link").hidden=!visible;find("#export-filter-link").hidden=!visible;
-      find("#export-link").href=`/api/batches/${current.batch.batch.id}/export?run_id=${encodeURIComponent(current.batch.run?.id||"")}`;
-      find("#export-filter-link").href=`/api/batches/${current.batch.batch.id}/export?${query()}`;
+      const params=query(),all=new URLSearchParams({run_id:current.batch.run?.id||""});
+      if(current.profileId){params.set("profile_id",current.profileId);all.set("profile_id",current.profileId);}
+      find("#export-link").href=`/api/batches/${current.batch.batch.id}/export?${all}`;
+      find("#export-filter-link").href=`/api/batches/${current.batch.batch.id}/export?${params}`;
+      params.set("format","html");find("#print-report").href=`/api/batches/${current.batch.batch.id}/report?${params}`;find("#print-report").hidden=!visible;
     }
     function draw(data){
       onPage(data);
@@ -50,7 +53,7 @@ const LedgerDeskResults={
         const active=context();if(ownRevision!==requestRevision||!active||active.revision!==current.revision)return;
         find("#results-list").innerHTML="";find("#results-count").textContent="—";
         find("#results-page-label").textContent="无法加载当前页，请刷新结果";
-        find("#export-link").hidden=true;find("#export-filter-link").hidden=true;
+        find("#export-link").hidden=true;find("#export-filter-link").hidden=true;find("#print-report").hidden=true;
         notify(error.message,true);
       }
     }
@@ -60,6 +63,6 @@ const LedgerDeskResults={
     find("#refresh-results").addEventListener("click",()=>onRefresh().catch((error)=>notify(error.message,true)));
     find("#search").addEventListener("input",()=>{if(isBusy())return;onInvalidate();requestRevision++;clearTimeout(searchTimer);exports();searchTimer=setTimeout(()=>load(),200);});
     find("#results-list").addEventListener("click",(event)=>{const button=event.target.closest("[data-case]");if(button)onCase(button.dataset.case).catch((error)=>notify(error.message,true));});
-    return {load};
+    return {load,query,exports};
   }
 };

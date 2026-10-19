@@ -1,0 +1,2 @@
+order_id,transaction_id,amount,event_type,channel
+A,P1,2,sale,x

@@ -3,7 +3,7 @@ from ..domain.errors import InputError
 from ..domain.result_summary import lookup_values
 import json
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 10
 
 
 def check_version(con):
@@ -110,5 +110,11 @@ def migrate(con, version):
     elif version == 7:
         con.execute("ALTER TABLE imports ADD COLUMN adapter_id TEXT NOT NULL DEFAULT 'standard_csv'")
         con.execute("ALTER TABLE imports ADD COLUMN adapter_version INTEGER")
+    elif version == 8:
+        from .expansion_schema import upgrade
+        upgrade(con)
+    elif version == 9:
+        from .operational_schema import upgrade
+        upgrade(con)
     else:
         raise InputError(f"没有数据库版本 {version} 的升级路径")

@@ -14,3 +14,4 @@ dist/
 /HANDOFF.md
 /docs/VALIDATION.md
 /config.local.json
+.ledgerdesk-worker.lock

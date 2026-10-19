@@ -101,7 +101,7 @@ class SchemaTests(unittest.TestCase):
     def test_new_database_and_reopen(self):
         store = Store(self.path)
         batch = create_demo(store)
-        self.assertEqual(self.version(), 8)
+        self.assertEqual(self.version(), 10)
         self.assertEqual(Store(self.path).detail(batch)["run"]["summary"]["issues"], 5)
         self.assertEqual(list(self.path.parent.glob("*.pre-*.sqlite3")), [])
 
@@ -112,7 +112,7 @@ class SchemaTests(unittest.TestCase):
             con.execute("INSERT INTO imports VALUES('file','old','orders','old.csv','hash','{}',1,'2026-10-18')")
             con.commit()
         store = Store(self.path)
-        self.assertEqual(self.version(), 8)
+        self.assertEqual(self.version(), 10)
         self.assertEqual(store.detail("old")["imports"][0]["currency_policy"], "legacy_unverified")
         backups = list(self.path.parent.glob("*.pre-*.sqlite3"))
         self.assertEqual(len(backups), 1)
@@ -144,12 +144,12 @@ class SchemaTests(unittest.TestCase):
 
     def test_future_version_rejected_without_modification(self):
         with closing(sqlite3.connect(self.path)) as con:
-            con.executescript("CREATE TABLE future(value); INSERT INTO future VALUES('keep'); PRAGMA user_version=9;")
+            con.executescript("CREATE TABLE future(value); INSERT INTO future VALUES('keep'); PRAGMA user_version=99;")
         before = self.path.read_bytes()
         with self.assertRaisesRegex(InputError, "版本"):
             Store(self.path)
         self.assertEqual(self.path.read_bytes(), before)
-        self.assertEqual(self.version(), 9)
+        self.assertEqual(self.version(), 99)
         self.assertEqual(len(list(self.path.parent.iterdir())), 1)
 
     def test_unversioned_nonempty_database_is_not_adopted(self):

@@ -201,24 +201,10 @@ class Store(Database):
             return {"older_id": older_id, "newer_id": newer_id, **result}
 
     def compare_page(self, batch_id, older_id, newer_id, page=1, page_size=50):
-        ResultQueryRepository.validate_page(page, page_size)
+        from .persistence.comparisons import ComparisonRepository
         with self.connect() as con:
             con.execute("BEGIN")
-            RunRepository.get(con, batch_id, older_id)
-            RunRepository.get(con, batch_id, newer_id)
-            def summaries(run_id):
-                selection = ResultQueryRepository.selection(batch_id, run_id, ResultFilter(), historical=True)
-                return list(ResultQueryRepository.summaries(con, selection))
-            result = compare_results(summaries(older_id), summaries(newer_id))
-            items = [{"kind": "added", "after": row} for row in result["added"]]
-            items += [{"kind": "removed", "before": row} for row in result["removed"]]
-            items += [{"kind": "changed", **row} for row in result["changed"]]
-            total = len(items)
-            pages = max(1, (total + page_size - 1) // page_size)
-            page = min(page, pages)
-            return {"older_id": older_id, "newer_id": newer_id, "counts": result["counts"], "total": total,
-                    "page": page, "page_size": page_size, "total_pages": pages,
-                    "items": items[(page - 1) * page_size:page * page_size]}
+            return ComparisonRepository.page(con, batch_id, older_id, newer_id, page, page_size)
 
     def review(self, batch_id, case_key, evidence_hash, status, note, run_id=None, expected_revision=None):
         return ReviewService(self).single(batch_id, case_key, evidence_hash, status, note, run_id, expected_revision)

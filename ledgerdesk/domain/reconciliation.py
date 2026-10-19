@@ -2,14 +2,16 @@
 from collections import Counter, defaultdict
 from .money import money
 from .values import digest
+from .rules import RulePolicy
 
 RECONCILIATION_VERSION = 3
-LABELS = {"matched": "金额一致", "amount_mismatch": "金额不一致", "order_only": "仅业务单",
+LABELS = {"within_tolerance": "容差内待复核", "matched": "金额一致", "amount_mismatch": "金额不一致", "order_only": "仅业务单",
           "payment_only": "仅支付账单", "duplicate_order": "重复业务单", "duplicate_transaction": "重复流水"}
 REVIEW_LABELS = {"pending": "待处理", "in_progress": "处理中", "resolved": "已处理"}
 
 
-def build_reconciliation(rows, previous, generation):
+def build_reconciliation(rows, previous, generation, policy=None):
+    policy = policy or RulePolicy()
     grouped = defaultdict(lambda: {"orders": [], "payments": []})
     duplicates = Counter((row["channel"], row["transaction_id"]) for row in rows if row["side"] == "payments")
     transaction_rows = defaultdict(list)
@@ -40,6 +42,8 @@ def build_reconciliation(rows, previous, generation):
             reasons.append("amount_mismatch")
         if not reasons:
             reasons = ["matched"]
+        if policy.within_tolerance(reasons, actual - expected):
+            reasons = ["within_tolerance"]
         case_key = digest([channel, order_id])
         other_rows = {row["id"]: row for payment in payments
                       for row in transaction_rows[(channel, payment["transaction_id"])]
@@ -47,6 +51,8 @@ def build_reconciliation(rows, previous, generation):
         conflicts = [other_rows[key] for key in sorted(other_rows)]
         source_evidence = digest([{key: row[key] for key in ("import_id", "line", "channel", "order_id",
                                  "transaction_id", "kind", "amount_cents")} for row in orders+payments+conflicts])
+        if policy.id is not None:
+            source_evidence = digest([source_evidence, policy.snapshot()])
         last = previous.get(case_key)
         if last and last.get("source_evidence_sha256", last["evidence_sha256"]) == source_evidence:
             evidence = last["evidence_sha256"]
@@ -54,7 +60,7 @@ def build_reconciliation(rows, previous, generation):
             # A new evidence generation prevents resurrecting a resolved
             # review when inputs revert to a much older state.
             evidence = digest([source_evidence, generation])
-        result = {"case_key": case_key, "channel": channel, "order_id": order_id,
+        result = {"case_key": case_key, "rule_snapshot": policy.snapshot(), "channel": channel, "order_id": order_id,
                   "expected": money(expected), "actual": money(actual), "difference": money(actual-expected),
                   "sales": money(sales), "refunds": money(refunds), "reasons": reasons,
                   "reason_labels": [LABELS[reason] for reason in reasons],

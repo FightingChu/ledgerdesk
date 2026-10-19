@@ -1,0 +1,17 @@
+{
+  "expected": "2.00",
+  "actual": "2.00",
+  "groups": 2,
+  "matched": 0,
+  "issues": 2,
+  "tolerance": 0,
+  "reasons": [
+    [
+      "duplicate_transaction"
+    ],
+    [
+      "duplicate_transaction"
+    ]
+  ],
+  "source": "independently written synthetic data; no customer or channel compatibility claim"
+}

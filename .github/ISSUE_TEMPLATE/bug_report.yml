@@ -1,0 +1,22 @@
+name: 缺陷报告
+description: 使用合成最小输入描述可复现问题
+body:
+  - type: input
+    id: environment
+    attributes:
+      label: LedgerDesk版本 / Python版本 / 系统
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 合成复现步骤
+      description: 不要附真实账单、数据库、凭据、导出或本机路径。
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: 实际结果与期望结果
+    validations:
+      required: true

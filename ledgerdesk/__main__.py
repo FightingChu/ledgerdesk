@@ -8,6 +8,7 @@ import webbrowser
 from urllib.request import urlopen
 
 from . import __version__
+from .cli import configure as configure_commands, execute as execute_command
 from .imports import InputError
 from .server import ROOT, instance_identity, make_server
 from .store import Store
@@ -29,7 +30,10 @@ def main():
     operation.add_argument("--diagnose", action="store_true", help="只读检查数据库并输出不含账单内容的 JSON 报告")
     operation.add_argument("--restore", type=Path, help="读取指定备份，恢复到全新的数据目录后退出")
     parser.add_argument("--restore-to", type=Path, help="恢复目标，必须是尚不存在的新数据目录")
+    configure_commands(parser)
     args = parser.parse_args()
+    if args.command and (args.backup or args.restore or args.diagnose or args.check_config):
+        parser.error("业务命令不能与旧备份/恢复/诊断或配置检查选项组合")
     if bool(args.restore) != bool(args.restore_to):
         parser.error("--restore 和 --restore-to 必须一起使用")
     if args.check_config and (args.backup or args.restore or args.diagnose):
@@ -70,6 +74,12 @@ def main():
         print("Backup saved:", args.backup.resolve())
         print("Source:", db, "| Batches:", summary["batches"], "| Rows:", summary["entries"],
               "| Schema:", summary["schema_version"])
+        return
+    if args.command:
+        try:
+            execute_command(args, db)
+        except (InputError, OSError, ValueError, sqlite3.Error) as exc:
+            parser.exit(1, str(exc) + "\n")
         return
     if args.open and args.port:
         # A second double-click opens this app instead of starting another copy.

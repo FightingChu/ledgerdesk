@@ -11,6 +11,11 @@ import socket
 from urllib.parse import parse_qs, urlsplit
 
 from . import __version__
+from .http.context import HttpContext
+from .http.router import FeatureRouter
+from .http.response import security_headers
+from .runtime.worker import JobWorker
+from .application.backup_policy import BackupPolicyService
 from .imports import InputError, preview
 from .domain.filters import ResultFilter
 from .domain.reviews import validate_revision
@@ -37,6 +42,12 @@ def instance_identity(db_path):
 
 
 class LocalHTTPServer(ThreadingHTTPServer):
+    def server_close(self):
+        worker = getattr(self, "job_worker", None)
+        if worker is not None:
+            worker.close()
+        super().server_close()
+
     def server_bind(self):
         # Windows SO_REUSEADDR permits a second listener on an occupied port.
         if os.name == "nt":
@@ -82,11 +93,8 @@ def make_server(db_path, port=8765):
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("X-Frame-Options", "DENY")
-            self.send_header("Referrer-Policy", "no-referrer")
-            self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+            for key, value in security_headers().items():
+                self.send_header(key, value)
             for key, value in (extra or {}).items():
                 self.send_header(key, value)
             self.end_headers()
@@ -198,6 +206,10 @@ def make_server(db_path, port=8765):
                 return
             path = urlsplit(self.path).path
             try:
+                routed = features.get(self.path)
+                if routed is not None:
+                    routed.send(self)
+                    return
                 if path == "/api/bootstrap":
                     self.respond(200, {**identity, "version": __version__, "token": token,
                         "batches": store.list_batches(), "reason_labels": LABELS, "review_labels": REVIEW_LABELS})
@@ -248,6 +260,10 @@ def make_server(db_path, port=8765):
             path = urlsplit(self.path).path
             try:
                 payload = self.read_json()
+                routed = features.post(self.path, payload)
+                if routed is not None:
+                    routed.send(self)
+                    return
                 if path == "/api/batches":
                     result = {"batch_id": store.create_batch(payload.get("name"), payload.get("description", ""))}
                 elif path == "/api/preview":
@@ -324,6 +340,10 @@ def make_server(db_path, port=8765):
     try:
         store = Store(db_path)
         import_validation = ImportValidationService(store)
+        features = FeatureRouter(HttpContext(store, data_manager, import_validation))
+        BackupPolicyService(store).startup()
+        server.job_worker = JobWorker(store)
+        server.job_worker.start()
     except Exception:
         server.server_close()
         raise

@@ -1,0 +1,14 @@
+{
+  "expected": "1.01",
+  "actual": "1.00",
+  "groups": 1,
+  "matched": 0,
+  "issues": 1,
+  "tolerance": 1,
+  "reasons": [
+    [
+      "within_tolerance"
+    ]
+  ],
+  "source": "independently written synthetic data; no customer or channel compatibility claim"
+}

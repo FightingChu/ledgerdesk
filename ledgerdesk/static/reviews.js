@@ -1,7 +1,7 @@
 "use strict";
 // All selections belong to one loaded page and one reconciliation run.
 const LedgerDeskReviews={
-  initialize({api,action,notify,escapeHTML,reviewLabels,state,onRefresh}){
+  initialize({api,action,notify,escapeHTML,reviewLabels,state,onRefresh,evidenceView}){
     const $=(selector)=>document.querySelector(selector);
     let rows=new Map(),selected=new Set(),enabled=false,bulkContext=null,caseContext=null,caseRequestRevision=0;
     const isIssue=(row)=>!(row.reasons.length===1&&row.reasons[0]==="matched");
@@ -67,7 +67,7 @@ const LedgerDeskReviews={
     async function openCase(key, historicalRun=null) {
       if(state.busy||!state.batch)return;
       const batchId=state.batch.batch.id,revision=state.pageRevision;
-      const url=historicalRun?`/api/batches/${batchId}/runs/${encodeURIComponent(historicalRun)}/cases/${key}`:`/api/batches/${batchId}/cases/${key}?run_id=${encodeURIComponent(state.batch.run?.id||"")}`;
+      const url=historicalRun?`/api/batches/${batchId}/runs/${encodeURIComponent(historicalRun)}/cases/${key}/info`:`/api/batches/${batchId}/cases/${key}/info?run_id=${encodeURIComponent(state.batch.run?.id||"")}`;
       const ownCaseRevision=++caseRequestRevision;
       const detail=await api(url);
       if(!state.batch||state.pageRevision!==revision||ownCaseRevision!==caseRequestRevision)return;
@@ -75,9 +75,8 @@ const LedgerDeskReviews={
       caseContext={row,batchId,runId:detail.run_id,revision};
       $("#case-title").textContent=row.order_id+" / "+row.channel;
       $("#case-summary").innerHTML=`<div class="reason-list">${row.reason_labels.map((label)=>`<span class="badge danger">${label}</span>`).join("")}</div><div class="case-overview"><div><label>预计净到账</label><strong>¥ ${row.expected}</strong></div><div><label>账单净额</label><strong>¥ ${row.actual}</strong></div><div><label>差额</label><strong>¥ ${row.difference}</strong></div></div>`;
-      $("#case-rows").innerHTML=row.rows.map((source)=>`<tr><td>${source.side==="orders"?"业务单":"支付账单"}<div class="channel">${escapeHTML(source.filename)}</div></td><td>${source.line}</td><td>${escapeHTML(source.transaction_id||"—")}</td><td>${{expected:"预计净额",sale:"收款",refund:"退款"}[source.kind]}</td><td class="number">${source.amount}</td></tr>`).join("");
-      $("#duplicate-evidence").hidden=!row.duplicate_rows?.length;
-      $("#duplicate-rows").innerHTML=(row.duplicate_rows||[]).map((source)=>`<tr><td>${escapeHTML(source.order_id)} / ${escapeHTML(source.channel)}</td><td>${escapeHTML(source.filename)} · 第 ${source.line} 行</td><td>${escapeHTML(source.transaction_id)}</td><td>${source.kind==="refund"?"退款":"收款"}</td><td class="number">${source.amount}</td></tr>`).join("");
+      await evidenceView.open({batchId,key,runId:detail.run_id,historical:!!historicalRun});
+      if(!state.batch||state.pageRevision!==revision||ownCaseRevision!==caseRequestRevision)return;
       const editable=!(row.reasons.length===1&&row.reasons[0]==="matched")&&!detail.stale&&!detail.read_only&&!state.batch.batch.archived;
       $("#review-controls").hidden=!editable; $("#save-review").hidden=!editable;
       $("#review-status").value=row.review_status; $("#review-note").value=row.note;

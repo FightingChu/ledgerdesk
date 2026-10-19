@@ -35,10 +35,10 @@ class ReviewMigrationTests(unittest.TestCase):
     def test_upgrade_preserves_every_original_column_and_initializes_review_revision(self):
         self.assertEqual(inspect_database(self.path)["status"], "ok")
         upgraded = Store(self.path)
-        backups = list(self.path.parent.glob("v6.sqlite3.pre-v6-to-v8-*.sqlite3"))
+        backups = list(self.path.parent.glob("v6.sqlite3.pre-v6-to-v10-*.sqlite3"))
         self.assertEqual(len(backups), 1)
         with upgraded.connect() as con, closing(sqlite3.connect(backups[0])) as backup:
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 8)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 10)
             self.assertEqual(backup.execute("PRAGMA user_version").fetchone()[0], 6)
             for table, (columns, rows) in self.original.items():
                 self.assertEqual([tuple(r) for r in con.execute("SELECT " + columns + " FROM " + table + " ORDER BY rowid")], rows)

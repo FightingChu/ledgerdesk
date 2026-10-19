@@ -1,6 +1,6 @@
-# LedgerDesk 0.8 架构与契约
+# LedgerDesk 0.13 架构与契约
 
-0.8 使用 schema v8，新增导入适配器身份；导入向导与凭据见 [导入契约](IMPORT_WIZARD.md)。处理版本与审计查询索引沿用 0.7；批量处理契约见 [批量处理与操作记录](BULK_REVIEWS.md)，查询边界见 [大批次查询与版本契约](PAGINATION.md)。备份和恢复规则见 [本地数据保护与恢复](DATA_MANAGEMENT.md)。
+0.13 使用 schema v10，新增规则、统计投影、分页证据、报告、任务与备份登记；导入向导与凭据见 [导入契约](IMPORT_WIZARD.md)。处理版本与审计查询索引沿用 0.7；批量处理契约见 [批量处理与操作记录](BULK_REVIEWS.md)，查询边界见 [大批次查询与版本契约](PAGINATION.md)。备份和恢复规则见 [本地数据保护与恢复](DATA_MANAGEMENT.md)。
 
 项目保持 Python 标准库运行方式，按实际职责逐步拆分。`store.py` 仍提供旧调用入口，HTTP 单项处理从 0.7 起须携带运行和处理版本；原 Python 调用签名保留，新增可选并发参数。
 
@@ -49,6 +49,14 @@ flowchart TD
 | `persistence/audit.py` | 审计追加、类型筛选和固定事件上限分页 |
 | `static/reviews.js`、`static/batches.js`、`static/audit.js` | 处理选择与详情、批次列表设置、审计分页控制器 |
 | `store.py` | 公共兼容入口与结果查询编排 |
+| `domain/rules.py`、`metrics.py`、`evidence.py`、`comparisons.py` | 规则、精确统计投影和有界读模型 |
+| `application/rules.py`、`statistics.py`、`reporting.py`、`jobs.py` | 规则、工作台、读快照报告与任务用例 |
+| `persistence/expansion_schema.py`、`operational_schema.py` | v9/v10事务迁移与历史投影回填 |
+| `persistence/statistics.py`、`evidence.py`、`comparisons.py` | SQL聚合、源行分页与摘要合并 |
+| `reporting/` | 共用列、分块CSV/HTML和已知打印样式 |
+| `runtime/` | OS工作空间锁、任务执行、安全发布和恢复 |
+| `http/` | 严格参数、服务路由、资源清单与首块前校验的流式响应 |
+| `cli/` | 同一应用服务的终端命令，保留原启动入口 |
 | `config.py` | JSON 配置验证和默认值；校验不创建数据目录 |
 
 领域层不依赖 SQLite、HTTP 或页面。测试同时检查业务行为和这一依赖方向。批次、导入、处理、运行和模板已建立仓储边界；应用服务持有事务，Store 保留旧入口及结果查询编排。
@@ -104,7 +112,7 @@ flowchart TD
 
 ## 数据库和错误响应
 
-schema v8 保留既有全部原列与记录；v7 → v8 为导入增加适配器身份与版本，旧版本保持未知；v6 → v7 增加处理版本与审计索引，较早升级同时建立摘要查询表并回填结果；v5 中的原渠道、模板修订、标签与归档字段继续保留。迁移前使用 SQLite 在线备份；DDL、版本号和外键校验位于同一事务，失败则回滚。
+schema v10 保留既有全部原列与记录；v8→v10事务回填金额和源行投影，增加规则/报告/任务/备份结构；v7 → v8 为导入增加适配器身份与版本，旧版本保持未知；v6 → v7 增加处理版本与审计索引，较早升级同时建立摘要查询表并回填结果；v5 中的原渠道、模板修订、标签与归档字段继续保留。迁移前使用 SQLite 在线备份；DDL、版本号和外键校验位于同一事务，失败则回滚。
 
 API 错误结构统一为：
 

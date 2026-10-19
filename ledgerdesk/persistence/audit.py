@@ -4,7 +4,7 @@ from ..domain.errors import InputError
 from ..domain.values import now
 from .result_queries import ResultQueryRepository
 
-ACTION_LABELS = {"create_batch": "创建批次", "update_batch": "更新批次设置", "import_file": "导入文件",
+ACTION_LABELS = {"select_rule": "选择核查规则", "create_batch": "创建批次", "update_batch": "更新批次设置", "import_file": "导入文件",
                  "revoke_import": "撤销文件", "replace_import": "替换文件", "reconcile": "执行核对",
                  "review": "更新处理记录", "bulk_review": "批量处理差异"}
 

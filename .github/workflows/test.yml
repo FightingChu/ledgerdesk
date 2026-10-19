@@ -20,13 +20,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: node --check ledgerdesk/static/app.js
-      - run: node --check ledgerdesk/static/data.js
-      - run: node --check ledgerdesk/static/results.js
-      - run: node --check ledgerdesk/static/reviews.js
-      - run: node --check ledgerdesk/static/audit.js
-      - run: node --check ledgerdesk/static/batches.js
-      - run: node --check ledgerdesk/static/import.js
+      - run: python scripts/check_boundaries.py
+      - run: python scripts/check_js.py
+      - run: python scripts/verify_examples.py
       - run: python scripts/build_release.py
       - name: Verify extracted source distribution
         run: python scripts/verify_release.py

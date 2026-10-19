@@ -4,6 +4,9 @@ from ..domain.errors import InputError
 from ..domain.reconciliation import RECONCILIATION_VERSION
 from ..domain.values import digest
 from ..domain.result_summary import lookup_values
+from ..domain.metrics import metric_values
+from ..domain.evidence import evidence_values
+from .rules import RuleRepository
 
 
 class RunRepository:
@@ -13,8 +16,11 @@ class RunRepository:
         if batch is None:
             raise InputError("批次不存在", code="not_found")
         files = con.execute("SELECT id,file_sha256,mapping,channel_aliases FROM imports WHERE batch_id=? AND is_active=1 ORDER BY id", (batch_id,))
-        return digest({"engine": RECONCILIATION_VERSION, "revision": batch["input_revision"],
-                       "files": [tuple(row) for row in files]})
+        identity = {"engine": RECONCILIATION_VERSION, "revision": batch["input_revision"], "files": [tuple(row) for row in files]}
+        policy = RuleRepository.selected(con, batch_id)
+        if policy.id is not None:
+            identity["rule"] = policy.snapshot()
+        return digest(identity)
 
     @staticmethod
     def inputs(con, batch_id):
@@ -45,8 +51,13 @@ class RunRepository:
 
     @staticmethod
     def save(con, batch_id, run_id, fingerprint, timestamp, summary, results):
-        con.execute("INSERT INTO runs VALUES(?,?,?,?,?)", (run_id, batch_id, fingerprint, timestamp, json.dumps(summary)))
+        con.execute("INSERT INTO runs(id,batch_id,input_sha256,created_at,summary,rule_snapshot) VALUES(?,?,?,?,?,?)",
+                    (run_id, batch_id, fingerprint, timestamp, json.dumps(summary), json.dumps(results[0].get("rule_snapshot")) if results else None))
         con.executemany("INSERT INTO results VALUES(?,?,?,?)", [(run_id, row["case_key"], row["evidence_sha256"],
                          json.dumps(row, ensure_ascii=False)) for row in results])
         con.executemany("INSERT INTO result_lookup VALUES(?,?,?,?,?,?,?,?,?,?)",
                         (lookup_values(run_id, position, row) for position, row in enumerate(results, 1)))
+
+        con.executemany("INSERT INTO result_metrics VALUES(?,?,?,?,?,?,?,?)", (metric_values(run_id, row) for row in results))
+        for row in results:
+            con.executemany("INSERT INTO result_sources VALUES(?,?,?,?,?)", evidence_values(run_id, row))

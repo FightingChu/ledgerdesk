@@ -7,6 +7,8 @@ import re
 import shutil
 import threading
 import uuid
+import sqlite3
+from contextlib import closing
 from ..domain.errors import InputError
 from ..persistence.database import Database
 from ..persistence.diagnostics import inspect_database
@@ -119,6 +121,11 @@ class DataManagementService:
             checked = self.verify_backup(name)
             if checked["status"] != "ok":
                 raise InputError("备份已生成但校验失败，请检查磁盘与诊断信息", code="invalid_database")
+            with closing(sqlite3.connect(self.path)) as con:
+                if con.execute("SELECT 1 FROM sqlite_master WHERE name='managed_backups'").fetchone():
+                    from ..persistence.backup_registry import BackupRegistry
+                    with con:
+                        BackupRegistry.register(con, name, checked["sha256"])
             return {"id": name, **summary, "status": checked["status"], "sha256": checked["sha256"]}
 
     def verify_backup(self, backup_id):

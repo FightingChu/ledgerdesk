@@ -1,0 +1,17 @@
+{
+  "expected": "3.00",
+  "actual": "3.00",
+  "groups": 2,
+  "matched": 2,
+  "issues": 0,
+  "tolerance": 0,
+  "reasons": [
+    [
+      "matched"
+    ],
+    [
+      "matched"
+    ]
+  ],
+  "source": "independently written synthetic data; no customer or channel compatibility claim"
+}
