@@ -22,7 +22,7 @@ def export_csv(detail, rows=None):
     writer.writerow(["数据性质", "渠道", "订单号", "预计净到账(元)", "账单净额(元)", "差额(元)",
                      "业务单行数", "账单行数", "核查结果", "处理状态", "处理备注", "核对时间UTC"])
     for row in detail["results"] if rows is None else rows:
-        writer.writerow(["合成样例" if detail["batch"]["is_sample"] else "用户导入（来源未核验）",
+        writer.writerow(["演示批次" if detail["batch"]["is_sample"] else "用户导入（来源未核验）",
             safe_cell(row["channel"]), safe_cell(row["order_id"]), row["expected"].replace(",", ""),
             row["actual"].replace(",", ""), row["difference"].replace(",", ""), row["order_count"], row["payment_count"],
             " / ".join(row["reason_labels"]), "无需处理" if row["reasons"] == ["matched"] else REVIEW_LABELS[row["review_status"]],

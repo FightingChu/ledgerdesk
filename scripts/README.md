@@ -7,7 +7,7 @@
 | `check_release_manifest.py` | 跟踪文件、允许清单和已知内部路径检查 |
 | `check_boundaries.py` | 递归领域依赖方向检查 |
 | `check_js.py` | 对发布清单中的全部JS做Node语法检查 |
-| `verify_examples.py` | 配置示例与合成金样输入语法 |
+| `verify_examples.py` | 配置示例与示例金样输入语法 |
 | `local_smoke.py` | 临时库、临时端口的完整回环流程 |
 | `check_migration.py` | 只迁移副本并比较全部原列摘要 |
 | `generate_synthetic.py` | 在新目录生成两侧合成CSV，不覆盖 |

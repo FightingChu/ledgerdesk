@@ -5,7 +5,7 @@ from ..domain.reconciliation import REVIEW_LABELS
 def cell(key, row, context):
     rule = row.get("rule_snapshot")
     if key == "nature":
-        return "合成样例" if context["batch"]["is_sample"] else "用户导入（来源未核验）"
+        return "演示批次" if context["batch"]["is_sample"] else "用户导入（来源未核验）"
     if key == "reasons":
         return " / ".join(row["reason_labels"])
     if key == "review_status":

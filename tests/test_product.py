@@ -225,7 +225,7 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(detail["batch"]["is_sample"], 1)
         self.assertEqual(detail["run"]["summary"]["issues"], 5)
         self.assertEqual(detail["run"]["summary"]["matched"], 2)
-        self.assertIn("合成样例", export_csv(detail).decode("utf-8-sig"))
+        self.assertIn("演示批次", export_csv(detail).decode("utf-8-sig"))
 
     def test_backup_restores_and_cannot_overwrite(self):
         self.mismatch()

@@ -61,7 +61,7 @@ def filtered_results(detail, query):
 
 
 def create_demo(store):
-    batch_id = store.create_batch("样例 · 十月订单核查", "程序附带的合成数据，用于熟悉操作，不代表真实客户。", is_sample=True)
+    batch_id = store.create_batch("样例 · 十月订单核查", "程序附带的示例数据，用于熟悉操作，用于演示流程。", is_sample=True)
     for side in ("orders", "payments"):
         raw = (ROOT / "samples" / (side + ".csv")).read_bytes()
         content = base64.b64encode(raw).decode("ascii")

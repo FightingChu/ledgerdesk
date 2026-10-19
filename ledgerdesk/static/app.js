@@ -125,7 +125,7 @@ function openCase(key,historicalRun=null){return reviewView.openCase(key,histori
 
 $("#new-batch").addEventListener("click",()=>{$("#batch-form").reset();$("#new-dialog").showModal();});
 $("#batch-form").addEventListener("submit",(event)=>{event.preventDefault();action(event.submitter,async()=>{const form=new FormData(event.target);const result=await api("/api/batches",{name:form.get("name"),description:form.get("description")});$("#new-dialog").close();await refreshList();await openBatch(result.batch_id);notify("批次已创建");});});
-$("#create-demo").addEventListener("click",(event)=>action(event.currentTarget,async()=>{const result=await api("/api/demo",{});await refreshList();await openBatch(result.batch_id);notify("合成样例批次已创建");}));
+$("#create-demo").addEventListener("click",(event)=>action(event.currentTarget,async()=>{const result=await api("/api/demo",{});await refreshList();await openBatch(result.batch_id);notify("演示批次已创建");}));
 $("#back-home").addEventListener("click",showHome);$("#home-nav").addEventListener("click",showHome);
 $("#batch-list").addEventListener("click",(event)=>{if(state.busy)return;const row=event.target.closest("[data-batch]");if(row)openBatch(row.dataset.batch).catch((error)=>notify(error.message,true));});
 $("#batch-list").addEventListener("keydown",(event)=>{if(event.key==="Enter"||event.key===" "){const row=event.target.closest("[data-batch]");if(row){event.preventDefault();row.click();}}});

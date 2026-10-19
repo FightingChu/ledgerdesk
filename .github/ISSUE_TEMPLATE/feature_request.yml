@@ -11,6 +11,6 @@ body:
     id: outcome
     attributes:
       label: 可以验证的完成标准
-      description: 描述需要得到的结果，不上传真实用户数据。
+      description: 描述需要得到的结果，不上传使用者数据。
     validations:
       required: true

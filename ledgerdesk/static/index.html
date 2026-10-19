@@ -38,24 +38,24 @@
     <button class="nav-item" id="manage-templates">▤ 映射模板</button>
     <button class="nav-item" id="manage-data">▣ 数据管理</button>
     <div class="sidebar-description">从账单到差异，<br>每一笔都有据可查。</div>
-    <div class="sidebar-bottom"><span class="status-dot"></span> 数据保存在本机<small><span id="app-version"></span> · 个人验证版</small></div>
+    <div class="sidebar-bottom"><span class="status-dot"></span> 数据保存在本机<small><span id="app-version"></span> · 本地候选版</small></div>
   </aside>
   <div class="main-shell">
     <header class="topbar"><span>工作空间 <span class="slash">/</span> <span id="breadcrumb">核查批次</span></span><span class="local-pill"><span class="status-dot"></span>本地运行 · 人民币 CNY</span></header>
     <main id="main" tabindex="-1">
       <section id="home-view">
         <div class="page-heading"><div><div class="eyebrow">RECONCILIATION</div><h1>把每一笔账，核清楚。</h1><p>导入业务单与支付流水，定位金额、退款和重复记录中的差异。</p></div><button class="button primary" id="new-batch">＋ 新建核查批次</button></div>
-        <div class="welcome-card"><div class="welcome-copy"><span class="small-label">第一次使用？</span><h2>用一组样例，走完核查流程。</h2><p>内含金额差异、退款、单边缺失和重复流水。<br>样例为合成数据，创建后会明确标记。</p><button class="button dark" id="create-demo">创建样例批次 <span>↗</span></button></div><div class="flow-preview" aria-hidden="true"><div class="flow-step"><span class="flow-number">01</span><span>导入两份数据</span><span class="flow-mark">✓</span></div><div class="flow-line"></div><div class="flow-step"><span class="flow-number">02</span><span>定位核查差异</span><span class="mini-badge">5 项</span></div><div class="flow-line"></div><div class="flow-step"><span class="flow-number">03</span><span>备注与导出</span><span class="flow-mark">↗</span></div></div></div>
+        <div class="welcome-card"><div class="welcome-copy"><span class="small-label">第一次使用？</span><h2>用一组样例，走完核查流程。</h2><p>内含金额差异、退款、单边缺失和重复流水。<br>样例为示例数据，创建后会明确标记。</p><button class="button dark" id="create-demo">创建样例批次 <span>↗</span></button></div><div class="flow-preview" aria-hidden="true"><div class="flow-step"><span class="flow-number">01</span><span>导入两份数据</span><span class="flow-mark">✓</span></div><div class="flow-line"></div><div class="flow-step"><span class="flow-number">02</span><span>定位核查差异</span><span class="mini-badge">5 项</span></div><div class="flow-line"></div><div class="flow-step"><span class="flow-number">03</span><span>备注与导出</span><span class="flow-mark">↗</span></div></div></div>
         <div class="section-title"><h2>核查批次 <span id="list-count" class="muted-count">0</span></h2><span class="muted">独立批次 · 源文件指纹 · 处理留痕</span></div>
         <div class="filter-toolbar"><label>批次状态<select id="batch-state"><option value="active">进行中</option><option value="archived">已归档</option><option value="all">全部批次</option></select></label><label>搜索批次<input type="search" id="batch-search" maxlength="128" placeholder="名称、说明或标签"></label></div>
         <div class="panel"><div class="table-scroll"><table class="batch-table"><thead><tr><th>批次名称</th><th>数据性质</th><th>已导入文件</th><th>创建时间</th><th></th></tr></thead><tbody id="batch-list"></tbody></table></div><div id="empty-batches" class="empty-state"><span class="empty-icon">▤</span><h3>还没有核查批次</h3><p>新建批次导入自己的文件，或先创建样例熟悉操作。</p></div></div>
-        <div class="product-note"><span>ⓘ</span><p>当前为个人验证版，无真实客户或生产使用记录。仅支持符合模板的标准 CSV；微信、支付宝原始账单需先转换。<br>本工具核对预计净到账与收款减退款，不含手续费、分账、汇兑和结算周期判断。</p></div>
+        <div class="product-note"><span>ⓘ</span><p>当前为本地候选版，。仅支持符合模板的标准 CSV；微信、支付宝原始账单需先转换。<br>本工具核对预计净到账与收款减退款，不含手续费、分账、汇兑和结算周期判断。</p></div>
       </section>
       <section id="detail-view" hidden>
         <button class="text-button back-button" id="back-home">← 全部批次</button>
         <div class="page-heading detail-heading"><div><div class="eyebrow" id="detail-label">RECONCILIATION BATCH</div><h1 id="batch-title"></h1><p id="batch-description"></p></div><div class="heading-actions"><button class="button secondary" id="edit-batch">批次设置</button><button class="button secondary" id="open-rules">核查规则</button><button class="button secondary" id="open-statistics">渠道统计</button><a class="button secondary" id="export-link" title="导出本批次全部记录" hidden>↓ 导出全部记录</a><a class="button secondary" id="export-filter-link" title="导出当前筛选结果" hidden>↓ 导出当前筛选</a><button class="button secondary" id="queue-reconcile">后台核对</button><button class="button primary" id="reconcile">执行核对 ↗</button></div></div>
         <div id="archived-notice" class="notice" hidden>批次已归档。可查看历史和导出；恢复批次后可继续导入、核对和处理。</div>
-        <div id="sample-notice" class="notice" hidden>合成样例批次 · 结果用于体验流程，不代表真实客户账单。</div>
+        <div id="sample-notice" class="notice" hidden>演示批次 · 结果用于体验流程，用于演示流程。</div>
         <div id="stale-notice" class="notice warning" hidden>源数据或核对规则已更新，当前显示上一次核对结果。请重新执行核对；更新前暂不可备注或导出。</div>
         <div id="legacy-currency-notice" class="notice warning" hidden>部分文件由旧版导入，币种未重新核验。请用原始 CSV 检查币种；发现非人民币时请新建批次重新导入。</div>
         <div class="import-grid"><article class="panel import-card"><div class="import-icon">▤</div><div><h3>业务单</h3><p>订单号、预计净到账（元）、渠道</p><div class="import-files" id="order-files"></div></div><button class="button secondary small import-trigger" data-side="orders">导入 CSV</button></article><article class="panel import-card"><div class="import-icon">⇄</div><div><h3>支付账单</h3><p>订单号、流水号、金额、类型、渠道</p><div class="import-files" id="payment-files"></div></div><button class="button secondary small import-trigger" data-side="payments">导入 CSV</button></article></div>

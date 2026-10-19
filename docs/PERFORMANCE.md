@@ -11,6 +11,6 @@ python scripts/benchmark.py --sizes 5000 --out ./backups/benchmark-5000.json
 python scripts/benchmark.py --sizes 20000 100000 --out ./backups/benchmark-large.json
 ```
 
-基准仅生成合成输入，按每文件最多 10000 行分批导入，记录 Python/系统、各阶段耗时、Python 跟踪分配峰值与 CSV 大小。tracemalloc 数值不是进程 RSS，也不适合跨不同机器直接比较。
+基准仅生成示例输入，按每文件最多 10000 行分批导入，记录 Python/系统、各阶段耗时、Python 跟踪分配峰值与 CSV 大小。tracemalloc 数值不是进程 RSS，也不适合跨不同机器直接比较。
 
 每次只针对具体风险重复测量。大规模基准不放进每次 CI，不把尚未执行的规模写成已通过。发布前的实际测量保存在本机验证记录，公开文档不虚构性能门槛。
