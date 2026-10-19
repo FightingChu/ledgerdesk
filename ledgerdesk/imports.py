@@ -2,20 +2,17 @@
 import base64
 import binascii
 import csv
-from decimal import Decimal, InvalidOperation
 import hashlib
 import io
-import re
+
+from .domain.errors import InputError
+from .domain.money import MAX_AMOUNT_CENTS, cents, money
+from .domain.mappings import FIELDS, validate_mapping
 
 MAX_BYTES = 5 * 1024 * 1024
 MAX_ROWS = 10000
-MAX_AMOUNT_CENTS = 10**12
 CURRENCY_HEADERS = {"currency", "currency_code", "币种", "货币", "货币种类"}
 CNY_VALUES = {"CNY", "RMB", "人民币"}
-FIELDS = {
-    "orders": ("order_id", "amount", "channel"),
-    "payments": ("order_id", "transaction_id", "amount", "event_type", "channel"),
-}
 ALIASES = {
     "order_id": ("order_id", "订单号", "商户订单号", "业务单号"),
     "transaction_id": ("transaction_id", "交易流水号", "流水号", "渠道流水号"),
@@ -23,30 +20,6 @@ ALIASES = {
     "event_type": ("event_type", "类型", "交易类型", "收支类型"),
     "channel": ("channel", "渠道", "支付渠道"),
 }
-
-
-class InputError(ValueError):
-    def __init__(self, message, errors=None):
-        super().__init__(message)
-        self.errors = errors or []
-
-
-def cents(value):
-    text = str(value).strip()
-    if not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,2})?", text):
-        raise InputError("金额须为非负十进制元，最多两位小数；不接受千分位或科学计数法")
-    try:
-        amount = int(Decimal(text) * 100)
-    except (InvalidOperation, ValueError):
-        raise InputError("金额无法解析") from None
-    if amount > MAX_AMOUNT_CENTS:
-        raise InputError("单行金额超过首版上限 100 亿元")
-    return amount
-
-
-def money(value):
-    sign = "-" if value < 0 else ""
-    return f"{sign}{abs(value)//100:,}.{abs(value)%100:02d}"
 
 
 def decode_file(content):
@@ -145,6 +118,7 @@ def preview(side, content):
 def parse(side, content, mapping):
     if not isinstance(side, str) or side not in FIELDS or not isinstance(mapping, dict):
         raise InputError("数据类型或字段映射无效")
+    validate_mapping(side, mapping)
     raw, text = decode_file(content)
     headers, rows = read_csv(text)
     selected = [mapping.get(field) for field in FIELDS[side]]

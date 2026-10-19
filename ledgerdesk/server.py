@@ -1,9 +1,7 @@
 """Local-only HTTP interface. No external service or runtime packages required."""
 import base64
-import csv
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import io
 import json
 import logging
 import os
@@ -14,6 +12,8 @@ from urllib.parse import parse_qs, urlsplit
 
 from . import __version__
 from .imports import InputError, preview
+from .domain.filters import ResultFilter
+from .application.reports import safe_cell, export_csv
 from .store import LABELS, REVIEW_LABELS, Store
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -37,42 +37,8 @@ class LocalHTTPServer(ThreadingHTTPServer):
         super().server_bind()
 
 
-def safe_cell(value):
-    text = str(value)
-    if text.lstrip().startswith(("=", "+", "-", "@")) or text.startswith(("\t", "\r", "\n")):
-        return "'" + text
-    return text
-
-
 def filtered_results(detail, query):
-    rows = detail["results"]
-    reason = query.get("reason", ["all"])[0]
-    status = query.get("status", ["all"])[0]
-    if reason != "all":
-        rows = [row for row in rows if reason in row["reasons"]]
-    if status == "not_required":
-        rows = [row for row in rows if row["reasons"] == ["matched"]]
-    elif status != "all":
-        rows = [row for row in rows if row["review_status"] == status]
-    return rows
-
-
-def export_csv(detail, rows=None):
-    if not detail["run"]:
-        raise InputError("请先执行核对")
-    if detail["stale"]:
-        raise InputError("数据有更新，请重新核对后再导出")
-    out = io.StringIO(newline="")
-    writer = csv.writer(out)
-    writer.writerow(["数据性质", "渠道", "订单号", "预计净到账(元)", "账单净额(元)", "差额(元)",
-                     "业务单行数", "账单行数", "核查结果", "处理状态", "处理备注", "核对时间UTC"])
-    for row in detail["results"] if rows is None else rows:
-        writer.writerow(["合成样例" if detail["batch"]["is_sample"] else "用户导入（来源未核验）",
-            safe_cell(row["channel"]), safe_cell(row["order_id"]), row["expected"].replace(",", ""),
-            row["actual"].replace(",", ""), row["difference"].replace(",", ""), row["order_count"], row["payment_count"],
-            " / ".join(row["reason_labels"]), "无需处理" if row["reasons"] == ["matched"] else REVIEW_LABELS[row["review_status"]],
-            safe_cell(row["note"]), detail["run"]["created_at"]])
-    return out.getvalue().encode("utf-8-sig")
+    return ResultFilter.from_query(query).apply(detail["results"])
 
 
 def create_demo(store):
@@ -99,6 +65,9 @@ def make_server(db_path, port=8765):
             LOGGER.info("%s %s", self.command, args[1] if len(args) > 1 else "")
 
         def respond(self, status, body, content_type="application/json; charset=utf-8", extra=None):
+            if isinstance(body, dict) and status >= 400 and "error" in body:
+                body.setdefault("code", {403: "forbidden", 404: "not_found", 500: "internal_error"}.get(status, "invalid_input"))
+                body.setdefault("errors", [])
             if not isinstance(body, bytes):
                 body = json.dumps(body, ensure_ascii=False).encode("utf-8")
             self.send_response(status)
@@ -157,6 +126,15 @@ def make_server(db_path, port=8765):
                     self.respond(200, {"batches": store.list_batches()})
                 elif path == "/api/templates":
                     self.respond(200, {"templates": store.list_templates()})
+                elif path == "/api/templates/export":
+                    data = json.dumps(store.export_templates(), ensure_ascii=False, indent=2).encode("utf-8")
+                    self.respond(200, data, extra={"Content-Disposition": 'attachment; filename="ledgerdesk-templates.json"'})
+                elif path.startswith("/api/batches/") and len(path.strip("/").split("/")) == 5:
+                    parts = path.strip("/").split("/")
+                    if parts[3] != "runs":
+                        self.respond(404, {"error": "接口不存在"})
+                        return
+                    self.respond(200, store.run_detail(parts[2], parts[4]))
                 elif path.startswith("/api/batches/"):
                     parts = path.strip("/").split("/")
                     if len(parts) not in (3, 4) or (len(parts) == 4 and parts[3] not in ("export", "history", "compare")):
@@ -164,12 +142,14 @@ def make_server(db_path, port=8765):
                         return
                     detail = store.detail(parts[2])
                     if len(parts) == 4:
-                        query = parse_qs(urlsplit(self.path).query)
+                        query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
                         if parts[3] == "history":
                             self.respond(200, {"history": store.history(parts[2])})
                         elif parts[3] == "compare":
                             self.respond(200, store.compare_runs(parts[2], query.get("from", [""])[0], query.get("to", [""])[0]))
                         else:
+                            if query.get("run_id", [detail["run"]["id"] if detail["run"] else ""])[0] != (detail["run"]["id"] if detail["run"] else ""):
+                                raise InputError("显示的核对版本已变化，请刷新后导出", code="stale_result")
                             rows = filtered_results(detail, query)
                             self.respond(200, export_csv(detail, rows), "text/csv; charset=utf-8",
                                          {"Content-Disposition": 'attachment; filename="ledgerdesk-reconciliation.csv"'})
@@ -188,7 +168,7 @@ def make_server(db_path, port=8765):
                 else:
                     self.respond(404, {"error": "页面不存在"})
             except InputError as exc:
-                self.respond(400, {"error": str(exc), "errors": exc.errors})
+                self.respond(400, {"error": str(exc), "errors": exc.errors, "code": exc.code})
             except Exception:
                 LOGGER.exception("Read failed")
                 self.respond(500, {"error": "读取失败，请检查终端日志"})
@@ -225,6 +205,8 @@ def make_server(db_path, port=8765):
                         store.review(batch_id, payload.get("case_key"), payload.get("evidence_sha256"),
                                      payload.get("status"), payload.get("note", ""))
                         result = {"saved": True}
+                    elif action == "update":
+                        result = store.update_batch(batch_id, tags=payload.get("tags"), archived=payload.get("archived"))
                     else:
                         self.respond(404, {"error": "接口不存在"})
                         return
@@ -233,12 +215,16 @@ def make_server(db_path, port=8765):
                                                  payload.get("mapping"), payload.get("channel_aliases"))
                 elif path == "/api/templates/delete":
                     result = store.delete_template(payload.get("id"))
+                elif path == "/api/templates/copy":
+                    result = store.copy_template(payload.get("id"), payload.get("name"))
+                elif path == "/api/templates/import":
+                    result = store.import_templates(payload.get("bundle"))
                 else:
                     self.respond(404, {"error": "接口不存在"})
                     return
                 self.respond(200, result)
             except InputError as exc:
-                self.respond(400, {"error": str(exc), "errors": exc.errors})
+                self.respond(400, {"error": str(exc), "errors": exc.errors, "code": exc.code})
             except PermissionError as exc:
                 self.respond(403, {"error": str(exc)})
             except Exception:

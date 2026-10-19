@@ -6,9 +6,10 @@ on:
 
 jobs:
   python:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: [ubuntu-latest, windows-latest]
         python-version: ["3.10", "3.12"]
     steps:
       - uses: actions/checkout@v4
@@ -21,3 +22,5 @@ jobs:
           node-version: 20
       - run: node --check ledgerdesk/static/app.js
       - run: python scripts/build_release.py
+      - name: Verify extracted source distribution
+        run: python scripts/verify_release.py

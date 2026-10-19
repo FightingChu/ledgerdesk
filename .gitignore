@@ -13,3 +13,4 @@ dist/
 .DS_Store
 /HANDOFF.md
 /docs/VALIDATION.md
+/config.local.json

@@ -11,19 +11,34 @@ from . import __version__
 from .imports import InputError
 from .server import ROOT, instance_identity, make_server
 from .store import Store
+from .config import Settings
 
 
 def main():
     parser = argparse.ArgumentParser(description="LedgerDesk 本地订单与支付账单核对工具")
-    parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--data-dir", type=Path, default=ROOT/"data")
-    parser.add_argument("--open", action="store_true", help="启动后打开本机浏览器")
+    parser.add_argument("--port", type=int, default=None)
+    parser.add_argument("--data-dir", type=Path, default=None)
+    parser.add_argument("--open", action="store_true", default=None, help="启动后打开本机浏览器")
+    parser.add_argument("--no-open", dest="open", action="store_false", default=None, help="启动时不打开浏览器")
+    parser.add_argument("--config", type=Path, help="读取 version=1 的本地 JSON 配置")
+    parser.add_argument("--check-config", action="store_true", help="校验最终配置后退出，不打开数据库")
     parser.add_argument("--backup", type=Path, help="备份当前数据库到新文件后退出")
     args = parser.parse_args()
+    try:
+        settings = Settings.load(args.config, ROOT / "data")
+    except InputError as exc:
+        parser.error(str(exc))
+    args.port = settings.port if args.port is None else args.port
+    args.data_dir = settings.data_dir if args.data_dir is None else args.data_dir
+    args.open = settings.open_browser if args.open is None else args.open
     if not 0 <= args.port <= 65535:
         parser.error("端口须在 0～65535 之间")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     db = args.data_dir.resolve()/"ledgerdesk.sqlite3"
+    if args.check_config:
+        print(json.dumps({"version": 1, "port": args.port, "data_dir": str(args.data_dir.resolve()),
+                          "open_browser": args.open}, ensure_ascii=False))
+        return
     if args.backup:
         try:
             summary = Store.backup_existing(db, args.backup)

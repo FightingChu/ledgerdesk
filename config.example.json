@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "port": 8765,
+  "data_dir": "data",
+  "open_browser": true
+}
