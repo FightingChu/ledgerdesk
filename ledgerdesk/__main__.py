@@ -82,7 +82,7 @@ def main():
                 if existing.get("workspace_id") != expected["workspace_id"]:
                     parser.exit(1, "该端口的 LedgerDesk 使用不同的数据目录；请使用 --port 8766。\n")
                 if existing.get("version") != __version__:
-                    parser.exit(1, "该端口正在运行另一个版本的 LedgerDesk；请先停止原服务，或使用 --port 8766。\n")
+                    parser.exit(1, "该端口正在运行另一个版本的 LedgerDesk；请先停止原服务。并行测试请使用另一数据目录和端口。\n")
                 webbrowser.open(f"http://127.0.0.1:{args.port}")
                 print("LedgerDesk is already running; opened its page.")
                 return

@@ -12,6 +12,8 @@ from .persistence.migrations import SCHEMA_VERSION
 from .persistence.templates import TemplateRepository
 from .persistence.runs import RunRepository
 from .application.reconciliation import ReconciliationService
+from .persistence.result_queries import ResultQueryRepository
+from .domain.filters import ResultFilter
 
 
 class Store(Database):
@@ -200,6 +202,62 @@ class Store(Database):
                     "summary": json.loads(latest["summary"])} if latest else None),
                     "results": results, "stale": stale, "audit": audit}
 
+    def overview(self, batch_id):
+        with self.connect() as con:
+            con.execute("BEGIN")
+            batch = self.batch(con, batch_id)
+            files = [dict(row) for row in con.execute("""SELECT id,side,filename,file_sha256,row_count,created_at,
+                currency_policy,is_active,revoked_at,revoked_reason,replaces_id,channel_aliases
+                FROM imports WHERE batch_id=? ORDER BY rowid""", (batch_id,))]
+            run = ResultQueryRepository.resolve(con, batch_id, None)
+            stale = bool(run and run["input_sha256"] != self.source_fingerprint(con, batch_id))
+            history = [dict(row) for row in con.execute("SELECT id,created_at,summary FROM runs WHERE batch_id=? ORDER BY rowid DESC LIMIT 30", (batch_id,))]
+            for row in history:
+                row["summary"] = json.loads(row["summary"])
+            audit = [dict(row) for row in con.execute("SELECT action,payload,created_at FROM audit WHERE batch_id=? ORDER BY id DESC LIMIT 50", (batch_id,))]
+            return {"batch": batch, "imports": files, "history": history, "audit": audit, "stale": stale,
+                    "run": {"id": run["id"], "created_at": run["created_at"], "summary": json.loads(run["summary"])} if run else None}
+
+    def result_page(self, batch_id, filters=None, page=1, page_size=50, run_id=None, historical=False):
+        ResultQueryRepository.validate_page(page, page_size)
+        filters = filters or ResultFilter()
+        with self.connect() as con:
+            con.execute("BEGIN")
+            run = ResultQueryRepository.resolve(con, batch_id, run_id, historical)
+            read_only = historical or bool(self.batch(con, batch_id)["archived"])
+            if run is None:
+                return {"run_id": None, "items": [], "page": 1, "page_size": page_size, "total": 0,
+                        "total_pages": 1, "stale": False, "read_only": read_only}
+            selection = ResultQueryRepository.selection(batch_id, run["id"], filters, historical)
+            total = ResultQueryRepository.count(con, selection)
+            pages = max(1, (total + page_size - 1) // page_size)
+            page = min(page, pages)
+            items = list(ResultQueryRepository.summaries(con, selection, page_size, (page - 1) * page_size))
+            stale = not historical and run["input_sha256"] != self.source_fingerprint(con, batch_id)
+            return {"run_id": run["id"], "items": items, "page": page, "page_size": page_size,
+                    "total": total, "total_pages": pages, "stale": stale, "read_only": read_only,
+                    "created_at": run["created_at"], "summary": json.loads(run["summary"])}
+
+    def case_detail(self, batch_id, case_key, run_id=None, historical=False):
+        with self.connect() as con:
+            con.execute("BEGIN")
+            run = ResultQueryRepository.resolve(con, batch_id, run_id, historical)
+            if run is None:
+                raise InputError("请先执行核对", code="not_found")
+            batch = self.batch(con, batch_id)
+            stale = not historical and run["input_sha256"] != self.source_fingerprint(con, batch_id)
+            return {"run_id": run["id"], "item": ResultQueryRepository.case(con, batch_id, run, case_key, historical),
+                    "read_only": historical or bool(batch["archived"]), "stale": stale}
+
+    def export_rows(self, batch_id, filters=None, run_id=None):
+        with self.connect() as con:
+            con.execute("BEGIN")
+            run = ResultQueryRepository.resolve(con, batch_id, run_id)
+            if run is None or run["input_sha256"] != self.source_fingerprint(con, batch_id):
+                raise InputError("数据或核对版本已变化，请重新核对后导出", code="stale_result")
+            selection = ResultQueryRepository.selection(batch_id, run["id"], filters or ResultFilter())
+            yield from ResultQueryRepository.summaries(con, selection)
+
     def history(self, batch_id, limit=30):
         if type(limit) is not int or not 1 <= limit <= 100:
             raise InputError("历史列表每次最多返回 100 项")
@@ -233,6 +291,26 @@ class Store(Database):
             RunRepository.get(con, batch_id, newer_id)
             result = compare_results(RunRepository.payloads(con, older_id), RunRepository.payloads(con, newer_id))
             return {"older_id": older_id, "newer_id": newer_id, **result}
+
+    def compare_page(self, batch_id, older_id, newer_id, page=1, page_size=50):
+        ResultQueryRepository.validate_page(page, page_size)
+        with self.connect() as con:
+            con.execute("BEGIN")
+            RunRepository.get(con, batch_id, older_id)
+            RunRepository.get(con, batch_id, newer_id)
+            def summaries(run_id):
+                selection = ResultQueryRepository.selection(batch_id, run_id, ResultFilter(), historical=True)
+                return list(ResultQueryRepository.summaries(con, selection))
+            result = compare_results(summaries(older_id), summaries(newer_id))
+            items = [{"kind": "added", "after": row} for row in result["added"]]
+            items += [{"kind": "removed", "before": row} for row in result["removed"]]
+            items += [{"kind": "changed", **row} for row in result["changed"]]
+            total = len(items)
+            pages = max(1, (total + page_size - 1) // page_size)
+            page = min(page, pages)
+            return {"older_id": older_id, "newer_id": newer_id, "counts": result["counts"], "total": total,
+                    "page": page, "page_size": page_size, "total_pages": pages,
+                    "items": items[(page - 1) * page_size:page * page_size]}
 
     def review(self, batch_id, case_key, evidence_hash, status, note):
         if not isinstance(status, str) or status not in REVIEW_LABELS:

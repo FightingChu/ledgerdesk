@@ -1,6 +1,6 @@
-# LedgerDesk 0.5 架构与契约
+# LedgerDesk 0.6 架构与契约
 
-0.5 沿用 schema v5，数据保护用例不升级或覆盖现有数据。备份和恢复规则见 [本地数据保护与恢复](DATA_MANAGEMENT.md)。
+0.6 使用 schema v6，通过事务新增结果摘要索引并保留原始数据，查询边界见 [大批次查询与版本契约](PAGINATION.md)。备份和恢复规则见 [本地数据保护与恢复](DATA_MANAGEMENT.md)。
 
 项目保持 Python 标准库运行方式，按实际职责逐步拆分。`store.py` 仍提供旧调用入口，HTTP、CLI 和已有测试不需要同时改写。
 
@@ -33,6 +33,8 @@ flowchart TD
 | `persistence/migrations.py` | 显式升级路径、外键验证和版本保护 |
 | `persistence/templates.py` | 模板修订、复制、删除和文件导入导出 |
 | `persistence/runs.py` | 有效输入身份、核对运行加载与存储 |
+| `persistence/result_queries.py` | 运行范围校验、SQL 筛选、计数和有界摘要查询 |
+| `domain/result_summary.py` | 从不可变结果提取不含源行的查询摘要 |
 | `store.py` | 批次和导入等剩余用例、兼容入口；后续继续按职责拆分 |
 | `config.py` | JSON 配置验证和默认值；校验不创建数据目录 |
 
@@ -89,7 +91,7 @@ flowchart TD
 
 ## 数据库和错误响应
 
-schema v5 为旧记录保留全部原列，新增原渠道、模板修订、批次标签和归档字段。迁移前使用 SQLite 在线备份；DDL、版本号和外键校验位于同一事务，失败则回滚。
+schema v6 保留既有全部原列与记录，新增摘要查询表并回填结果；v5 中的原渠道、模板修订、标签与归档字段继续保留。迁移前使用 SQLite 在线备份；DDL、版本号和外键校验位于同一事务，失败则回滚。
 
 API 错误结构统一为：
 

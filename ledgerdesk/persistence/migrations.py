@@ -1,7 +1,9 @@
 """Transactional schema upgrades; version numbers are advanced only after validation."""
 from ..domain.errors import InputError
+from ..domain.result_summary import lookup_values
+import json
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def check_version(con):
@@ -86,5 +88,20 @@ def migrate(con, version):
         con.execute("ALTER TABLE mapping_templates ADD COLUMN revision INTEGER NOT NULL DEFAULT 1")
         con.execute("ALTER TABLE batches ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'")
         con.execute("ALTER TABLE batches ADD COLUMN archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1))")
+    elif version == 5:
+        con.execute("""CREATE TABLE result_lookup (
+            run_id TEXT NOT NULL, case_key TEXT NOT NULL, position INTEGER NOT NULL,
+            evidence_sha256 TEXT NOT NULL, search_text TEXT NOT NULL,
+            matched INTEGER NOT NULL CHECK(matched IN (0,1)), reason_tokens TEXT NOT NULL,
+            snapshot_status TEXT, snapshot_note TEXT NOT NULL, summary TEXT NOT NULL,
+            PRIMARY KEY(run_id,case_key), UNIQUE(run_id,position),
+            FOREIGN KEY(run_id,case_key) REFERENCES results(run_id,case_key))""")
+        position, last_run = 0, None
+        for run_id, payload in con.execute("SELECT run_id,payload FROM results ORDER BY run_id,rowid"):
+            if last_run != run_id:
+                position, last_run = 0, run_id
+            position += 1
+            con.execute("INSERT INTO result_lookup VALUES(?,?,?,?,?,?,?,?,?,?)",
+                        lookup_values(run_id, position, json.loads(payload)))
     else:
         raise InputError(f"没有数据库版本 {version} 的升级路径")

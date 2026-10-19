@@ -271,7 +271,7 @@ class HttpTests(unittest.TestCase):
             return response.status, parsed, response.headers
 
     def test_browser_assets_and_traversal_rejected(self):
-        for path in ("/", "/app.js", "/style.css"):
+        for path in ("/", "/app.js", "/data.js", "/results.js", "/style.css"):
             status, _, headers = self.request(path)
             self.assertEqual(status, 200)
             self.assertEqual(headers["X-Frame-Options"], "DENY")

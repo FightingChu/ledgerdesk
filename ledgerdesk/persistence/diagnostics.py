@@ -51,6 +51,9 @@ def inspect_database(path):
                 expected["entries"].add("source_channel")
                 expected["mapping_templates"].add("revision")
                 expected["batches"].update(("tags", "archived"))
+            if version >= 6:
+                expected["result_lookup"] = {"run_id", "case_key", "position", "evidence_sha256", "search_text",
+                                             "matched", "reason_tokens", "snapshot_status", "snapshot_note", "summary"}
             actual_tables = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             for table, columns in expected.items():
                 if table not in actual_tables or not columns.issubset({row[1] for row in con.execute("PRAGMA table_info(" + table + ")")}):
@@ -62,6 +65,10 @@ def inspect_database(path):
             report["foreign_key_violations"] = sum(1 for _ in con.execute("PRAGMA foreign_key_check"))
             report["counts"] = {table: con.execute("SELECT COUNT(*) FROM " + table).fetchone()[0] for table in expected}
             report["status"] = "ok" if report["integrity"] == "ok" and report["foreign_key_violations"] == 0 else "invalid"
+            if version >= 6:
+                report["index_coverage"] = report["counts"]["result_lookup"] == report["counts"]["results"]
+                if not report["index_coverage"]:
+                    report["status"] = "invalid"
     except (sqlite3.Error, OSError):
         report["status"] = "invalid"
     return report

@@ -3,6 +3,7 @@ import json
 from ..domain.errors import InputError
 from ..domain.reconciliation import RECONCILIATION_VERSION
 from ..domain.values import digest
+from ..domain.result_summary import lookup_values
 
 
 class RunRepository:
@@ -47,3 +48,5 @@ class RunRepository:
         con.execute("INSERT INTO runs VALUES(?,?,?,?,?)", (run_id, batch_id, fingerprint, timestamp, json.dumps(summary)))
         con.executemany("INSERT INTO results VALUES(?,?,?,?)", [(run_id, row["case_key"], row["evidence_sha256"],
                          json.dumps(row, ensure_ascii=False)) for row in results])
+        con.executemany("INSERT INTO result_lookup VALUES(?,?,?,?,?,?,?,?,?,?)",
+                        (lookup_values(run_id, position, row) for position, row in enumerate(results, 1)))

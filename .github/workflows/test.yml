@@ -22,6 +22,7 @@ jobs:
           node-version: 20
       - run: node --check ledgerdesk/static/app.js
       - run: node --check ledgerdesk/static/data.js
+      - run: node --check ledgerdesk/static/results.js
       - run: python scripts/build_release.py
       - name: Verify extracted source distribution
         run: python scripts/verify_release.py

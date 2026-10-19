@@ -39,7 +39,7 @@ class ResultFilter:
             if matched:
                 return False
             if self.status == "outstanding":
-                if row["review_status"] == "resolved":
+                if row["review_status"] not in ("pending", "in_progress"):
                     return False
             elif row["review_status"] != self.status:
                 return False

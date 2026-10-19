@@ -101,7 +101,7 @@ class SchemaTests(unittest.TestCase):
     def test_new_database_and_reopen(self):
         store = Store(self.path)
         batch = create_demo(store)
-        self.assertEqual(self.version(), 5)
+        self.assertEqual(self.version(), 6)
         self.assertEqual(Store(self.path).detail(batch)["run"]["summary"]["issues"], 5)
         self.assertEqual(list(self.path.parent.glob("*.pre-*.sqlite3")), [])
 
@@ -112,7 +112,7 @@ class SchemaTests(unittest.TestCase):
             con.execute("INSERT INTO imports VALUES('file','old','orders','old.csv','hash','{}',1,'2026-10-18')")
             con.commit()
         store = Store(self.path)
-        self.assertEqual(self.version(), 5)
+        self.assertEqual(self.version(), 6)
         self.assertEqual(store.detail("old")["imports"][0]["currency_policy"], "legacy_unverified")
         backups = list(self.path.parent.glob("*.pre-*.sqlite3"))
         self.assertEqual(len(backups), 1)
@@ -221,7 +221,7 @@ class StartupTests(unittest.TestCase):
     def test_older_release_requires_restart_and_never_opens_page(self):
         from ledgerdesk.server import instance_identity
         with self.assertRaises(SystemExit) as result:
-            self.invoke({**instance_identity(self.db), "version": "0.4.0"})
+            self.invoke({**instance_identity(self.db), "version": "0.5.0"})
         self.assertEqual(result.exception.code, 1)
 
     def test_occupied_port_does_not_create_requested_database(self):

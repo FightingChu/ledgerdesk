@@ -116,6 +116,68 @@ def make_server(db_path, port=8765):
                 raise InputError("请求须为 JSON 对象")
             return payload
 
+        @staticmethod
+        def single(query, name, default=None):
+            values = query.get(name, [default])
+            if len(values) != 1:
+                raise InputError("查询参数不能重复", code="invalid_input")
+            return values[0]
+
+        def paging(self, query):
+            values = []
+            for name, default in (("page", "1"), ("page_size", "50")):
+                value = self.single(query, name, default)
+                if not value or not value.isascii() or not value.isdecimal() or len(value) > 9:
+                    raise InputError("分页参数必须是正整数", code="invalid_pagination")
+                values.append(int(value))
+            return values
+
+        def batch_get(self, path):
+            parts = path.strip("/").split("/")
+            if len(parts)<3:
+                self.respond(404,{"error":"接口不存在"})
+                return
+            batch = parts[2]
+            query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
+            if len(parts) == 3:
+                # Legacy bulk API remains available to existing integrations.
+                detail = store.detail(batch)
+                detail["history"] = store.history(batch)
+                self.respond(200, detail)
+            elif len(parts) == 4 and parts[3] == "overview":
+                self.respond(200, store.overview(batch))
+            elif len(parts) == 4 and parts[3] == "results":
+                page, size = self.paging(query)
+                self.respond(200, store.result_page(batch, ResultFilter.from_query(query), page, size,
+                                                   run_id=self.single(query, "run_id")))
+            elif len(parts) == 5 and parts[3] == "cases":
+                self.respond(200, store.case_detail(batch, parts[4], run_id=self.single(query, "run_id")))
+            elif len(parts) == 5 and parts[3] == "runs":
+                self.respond(200, store.run_detail(batch, parts[4]))
+            elif len(parts) == 6 and parts[3] == "runs" and parts[5] == "results":
+                page, size = self.paging(query)
+                self.respond(200, store.result_page(batch, ResultFilter.from_query(query), page, size,
+                                                   run_id=parts[4], historical=True))
+            elif len(parts) == 7 and parts[3] == "runs" and parts[5] == "cases":
+                self.respond(200, store.case_detail(batch, parts[6], run_id=parts[4], historical=True))
+            elif len(parts) == 4 and parts[3] == "history":
+                self.respond(200, {"history": store.history(batch)})
+            elif len(parts) == 4 and parts[3] == "compare":
+                self.respond(200, store.compare_runs(batch, self.single(query, "from", ""), self.single(query, "to", "")))
+            elif len(parts) == 4 and parts[3] == "compare-page":
+                page, size = self.paging(query)
+                self.respond(200, store.compare_page(batch, self.single(query, "from", ""), self.single(query, "to", ""), page, size))
+            elif len(parts) == 4 and parts[3] == "export":
+                detail = store.overview(batch)
+                run_id = detail["run"]["id"] if detail["run"] else ""
+                if self.single(query, "run_id", run_id) != run_id:
+                    raise InputError("显示的核对版本已变化，请刷新后导出", code="stale_result")
+                rows = store.export_rows(batch, ResultFilter.from_query(query), run_id)
+                self.respond(200, export_csv(detail, rows), "text/csv; charset=utf-8",
+                             {"Content-Disposition": 'attachment; filename="ledgerdesk-reconciliation.csv"'})
+            else:
+                self.respond(404, {"error": "接口不存在"})
+
         def do_GET(self):
             if not self.trusted_host():
                 self.respond(403, {"error": "仅接受本机访问"})
@@ -140,37 +202,13 @@ def make_server(db_path, port=8765):
                 elif path == "/api/templates/export":
                     data = json.dumps(store.export_templates(), ensure_ascii=False, indent=2).encode("utf-8")
                     self.respond(200, data, extra={"Content-Disposition": 'attachment; filename="ledgerdesk-templates.json"'})
-                elif path.startswith("/api/batches/") and len(path.strip("/").split("/")) == 5:
-                    parts = path.strip("/").split("/")
-                    if parts[3] != "runs":
-                        self.respond(404, {"error": "接口不存在"})
-                        return
-                    self.respond(200, store.run_detail(parts[2], parts[4]))
                 elif path.startswith("/api/batches/"):
-                    parts = path.strip("/").split("/")
-                    if len(parts) not in (3, 4) or (len(parts) == 4 and parts[3] not in ("export", "history", "compare")):
-                        self.respond(404, {"error": "接口不存在"})
-                        return
-                    detail = store.detail(parts[2])
-                    if len(parts) == 4:
-                        query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
-                        if parts[3] == "history":
-                            self.respond(200, {"history": store.history(parts[2])})
-                        elif parts[3] == "compare":
-                            self.respond(200, store.compare_runs(parts[2], query.get("from", [""])[0], query.get("to", [""])[0]))
-                        else:
-                            if query.get("run_id", [detail["run"]["id"] if detail["run"] else ""])[0] != (detail["run"]["id"] if detail["run"] else ""):
-                                raise InputError("显示的核对版本已变化，请刷新后导出", code="stale_result")
-                            rows = filtered_results(detail, query)
-                            self.respond(200, export_csv(detail, rows), "text/csv; charset=utf-8",
-                                         {"Content-Disposition": 'attachment; filename="ledgerdesk-reconciliation.csv"'})
-                    else:
-                        detail["history"] = store.history(parts[2])
-                        self.respond(200, detail)
-                elif path in ("/", "/app.js", "/data.js", "/style.css"):
+                    self.batch_get(path)
+                elif path in ("/", "/app.js", "/data.js", "/results.js", "/style.css"):
                     name, mime = {"/": ("index.html", "text/html; charset=utf-8"),
                                   "/app.js": ("app.js", "text/javascript; charset=utf-8"),
                                   "/data.js": ("data.js", "text/javascript; charset=utf-8"),
+                                  "/results.js": ("results.js", "text/javascript; charset=utf-8"),
                                   "/style.css": ("style.css", "text/css; charset=utf-8")}[path]
                     self.respond(200, (ASSETS / name).read_bytes(), mime)
                 elif path in ("/samples/orders.csv", "/samples/payments.csv"):

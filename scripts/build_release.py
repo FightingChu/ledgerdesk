@@ -19,13 +19,14 @@ RELEASE_FILES = (
     "ledgerdesk/domain/reconciliation.py", "ledgerdesk/domain/filters.py", "ledgerdesk/domain/history.py",
     "ledgerdesk/persistence/__init__.py", "ledgerdesk/persistence/database.py",
     "ledgerdesk/persistence/migrations.py", "ledgerdesk/persistence/templates.py", "ledgerdesk/persistence/runs.py",
+    "ledgerdesk/persistence/result_queries.py", "ledgerdesk/domain/result_summary.py",
     "ledgerdesk/application/__init__.py", "ledgerdesk/application/reconciliation.py", "ledgerdesk/application/reports.py",
-    "ledgerdesk/static/app.js", "ledgerdesk/static/data.js", "ledgerdesk/static/style.css",
+    "ledgerdesk/static/app.js", "ledgerdesk/static/data.js", "ledgerdesk/static/results.js", "ledgerdesk/static/style.css",
     "samples/orders.csv", "samples/payments.csv", "scripts/build_release.py", "scripts/verify_release.py",
     "tests/__init__.py", "tests/test_product.py", "tests/test_reliability.py", "tests/test_import_management.py",
-    "tests/test_workflows.py", "tests/test_domain.py", "tests/test_config.py", "tests/test_data_management.py",
-    "tests/fixtures/schema_v1.sql", "tests/fixtures/schema_v4.sql", "docs/PRODUCT.md", "docs/FEEDBACK_TEMPLATE.md",
-    "docs/CHANGELOG.md", "docs/PROJECT_PLAN.md", "docs/ARCHITECTURE.md", "docs/DATA_MANAGEMENT.md", ".github/workflows/test.yml",
+    "tests/test_workflows.py", "tests/test_domain.py", "tests/test_config.py", "tests/test_data_management.py", "tests/test_pagination.py",
+    "tests/fixtures/schema_v1.sql", "tests/fixtures/schema_v4.sql", "tests/fixtures/schema_v5.sql", "docs/PRODUCT.md", "docs/FEEDBACK_TEMPLATE.md",
+    "docs/CHANGELOG.md", "docs/PROJECT_PLAN.md", "docs/ARCHITECTURE.md", "docs/DATA_MANAGEMENT.md", "docs/PAGINATION.md", ".github/workflows/test.yml",
 )
 
 
