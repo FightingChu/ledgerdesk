@@ -3,7 +3,7 @@ from ..domain.errors import InputError
 from ..domain.result_summary import lookup_values
 import json
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 def check_version(con):
@@ -103,5 +103,9 @@ def migrate(con, version):
             position += 1
             con.execute("INSERT INTO result_lookup VALUES(?,?,?,?,?,?,?,?,?,?)",
                         lookup_values(run_id, position, json.loads(payload)))
+    elif version == 6:
+        con.execute("ALTER TABLE reviews ADD COLUMN revision INTEGER NOT NULL DEFAULT 1 CHECK(revision>=1)")
+        con.execute("CREATE INDEX audit_batch_events ON audit(batch_id,id DESC)")
+        con.execute("CREATE INDEX audit_batch_action_events ON audit(batch_id,action,id DESC)")
     else:
         raise InputError(f"没有数据库版本 {version} 的升级路径")

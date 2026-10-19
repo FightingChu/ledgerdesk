@@ -13,6 +13,8 @@ from urllib.parse import parse_qs, urlsplit
 from . import __version__
 from .imports import InputError, preview
 from .domain.filters import ResultFilter
+from .domain.reviews import validate_revision
+from .domain.values import require_text
 from .application.reports import safe_cell, export_csv
 from .application.data_management import DataManagementService
 from .persistence.diagnostics import inspect_database
@@ -146,6 +148,14 @@ def make_server(db_path, port=8765):
                 self.respond(200, detail)
             elif len(parts) == 4 and parts[3] == "overview":
                 self.respond(200, store.overview(batch))
+            elif len(parts) == 4 and parts[3] == "audit":
+                page, size = self.paging(query)
+                until = self.single(query, "until_id")
+                if until is not None:
+                    if not until or not until.isascii() or not until.isdecimal() or len(until) > 19:
+                        raise InputError("操作记录范围无效", code="invalid_pagination")
+                    until = int(until)
+                self.respond(200, store.audit_page(batch, page, size, self.single(query, "action", "all"), until))
             elif len(parts) == 4 and parts[3] == "results":
                 page, size = self.paging(query)
                 self.respond(200, store.result_page(batch, ResultFilter.from_query(query), page, size,
@@ -204,11 +214,14 @@ def make_server(db_path, port=8765):
                     self.respond(200, data, extra={"Content-Disposition": 'attachment; filename="ledgerdesk-templates.json"'})
                 elif path.startswith("/api/batches/"):
                     self.batch_get(path)
-                elif path in ("/", "/app.js", "/data.js", "/results.js", "/style.css"):
+                elif path in ("/", "/app.js", "/data.js", "/results.js", "/reviews.js", "/audit.js", "/batches.js", "/style.css"):
                     name, mime = {"/": ("index.html", "text/html; charset=utf-8"),
                                   "/app.js": ("app.js", "text/javascript; charset=utf-8"),
                                   "/data.js": ("data.js", "text/javascript; charset=utf-8"),
                                   "/results.js": ("results.js", "text/javascript; charset=utf-8"),
+                                  "/reviews.js": ("reviews.js", "text/javascript; charset=utf-8"),
+                                  "/audit.js": ("audit.js", "text/javascript; charset=utf-8"),
+                                  "/batches.js": ("batches.js", "text/javascript; charset=utf-8"),
                                   "/style.css": ("style.css", "text/css; charset=utf-8")}[path]
                     self.respond(200, (ASSETS / name).read_bytes(), mime)
                 elif path in ("/samples/orders.csv", "/samples/payments.csv"):
@@ -252,9 +265,13 @@ def make_server(db_path, port=8765):
                     elif action == "reconcile":
                         result = store.reconcile(batch_id)
                     elif action == "review":
-                        store.review(batch_id, payload.get("case_key"), payload.get("evidence_sha256"),
-                                     payload.get("status"), payload.get("note", ""))
-                        result = {"saved": True}
+                        result = store.review(batch_id, payload.get("case_key"), payload.get("evidence_sha256"),
+                                     payload.get("status"), payload.get("note", ""),
+                                     run_id=require_text(payload.get("run_id"), "核对版本", 64),
+                                     expected_revision=validate_revision(payload.get("expected_revision")))
+                    elif action == "bulk-review":
+                        result = store.bulk_review(batch_id, payload.get("run_id"), payload.get("items"),
+                                                   payload.get("status"), payload.get("note", ""))
                     elif action == "update":
                         result = store.update_batch(batch_id, tags=payload.get("tags"), archived=payload.get("archived"))
                     else:

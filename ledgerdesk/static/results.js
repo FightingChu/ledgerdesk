@@ -1,7 +1,7 @@
 "use strict";
 // This controller owns only the current page. Source evidence is requested by the case dialog.
 const LedgerDeskResults={
-  initialize({api,notify,escapeHTML,reviewLabels,context,onCase,onRefresh}){
+  initialize({api,notify,escapeHTML,reviewLabels,context,onCase,onRefresh,onPage,onInvalidate,selectionCell,isBusy}){
     const find=(selector)=>document.querySelector(selector);
     let page=1,pageSize=50,pages=1,requestRevision=0,searchTimer;
     function query(){
@@ -19,6 +19,7 @@ const LedgerDeskResults={
       find("#export-filter-link").href=`/api/batches/${current.batch.batch.id}/export?${query()}`;
     }
     function draw(data){
+      onPage(data);
       page=data.page;pages=data.total_pages;
       find("#results-count").textContent=data.total;
       find("#results-page-label").textContent=`第 ${page} / ${pages} 页 · 共 ${data.total} 项 · 当前 ${data.items.length} 项`;
@@ -26,13 +27,13 @@ const LedgerDeskResults={
       document.querySelectorAll("[data-filter]").forEach((button)=>button.classList.toggle("selected",button.dataset.filter===context()?.group));
       find("#results-list").innerHTML=data.items.map((row)=>{
         const matched=row.reasons.length===1&&row.reasons[0]==="matched";
-        return `<tr><td><div class="order-id">${escapeHTML(row.order_id)}</div><div class="channel">${escapeHTML(row.channel)}</div></td><td class="number">${row.expected}</td><td class="number">${row.actual}</td><td class="number ${row.difference!=="0.00"?"amount-diff":""}">${row.difference}</td><td><div class="reason-list">${row.reason_labels.map((label)=>`<span class="badge ${matched?"success":"danger"}">${escapeHTML(label)}</span>`).join("")}</div></td><td><span class="badge ${row.review_status==="resolved"?"success":"neutral"}">${matched?"无需处理":reviewLabels[row.review_status]||"未记录"}</span></td><td><button class="text-button" data-case="${row.case_key}">查看 ↗</button></td></tr>`;
+        return `<tr><td class="selection-cell">${selectionCell(row)}</td><td><div class="order-id">${escapeHTML(row.order_id)}</div><div class="channel">${escapeHTML(row.channel)}</div></td><td class="number">${row.expected}</td><td class="number">${row.actual}</td><td class="number ${row.difference!=="0.00"?"amount-diff":""}">${row.difference}</td><td><div class="reason-list">${row.reason_labels.map((label)=>`<span class="badge ${matched?"success":"danger"}">${escapeHTML(label)}</span>`).join("")}</div></td><td><span class="badge ${row.review_status==="resolved"?"success":"neutral"}">${matched?"无需处理":reviewLabels[row.review_status]||"未记录"}</span></td><td><button class="text-button" data-case="${row.case_key}">查看 ↗</button></td></tr>`;
       }).join("");
       find("#empty-results").hidden=!!data.items.length;
       find("#empty-results").innerHTML=context()?.batch.run?'<h3>当前筛选下没有记录</h3><p>尝试切换筛选或清除搜索条件。</p>':'<span class="empty-icon">⇄</span><h3>准备好两份文件，就可以开始</h3><p>导入业务单和支付账单，确认映射后点击“执行核对”。</p>';
     }
     async function load(reset=true){
-      clearTimeout(searchTimer);
+      clearTimeout(searchTimer);onInvalidate();
       const current=context();if(!current)return;
       if(reset!==false)page=1;
       const ownRevision=++requestRevision,params=query();
@@ -53,11 +54,11 @@ const LedgerDeskResults={
         notify(error.message,true);
       }
     }
-    find("#results-prev").addEventListener("click",()=>{if(page>1){page--;load(false);}});
-    find("#results-next").addEventListener("click",()=>{if(page<pages){page++;load(false);}});
-    find("#results-page-size").addEventListener("change",()=>{pageSize=Number(find("#results-page-size").value);load();});
+    find("#results-prev").addEventListener("click",()=>{if(!isBusy()&&page>1){page--;load(false);}});
+    find("#results-next").addEventListener("click",()=>{if(!isBusy()&&page<pages){page++;load(false);}});
+    find("#results-page-size").addEventListener("change",()=>{if(isBusy())return;pageSize=Number(find("#results-page-size").value);load();});
     find("#refresh-results").addEventListener("click",()=>onRefresh().catch((error)=>notify(error.message,true)));
-    find("#search").addEventListener("input",()=>{requestRevision++;clearTimeout(searchTimer);exports();searchTimer=setTimeout(()=>load(),200);});
+    find("#search").addEventListener("input",()=>{if(isBusy())return;onInvalidate();requestRevision++;clearTimeout(searchTimer);exports();searchTimer=setTimeout(()=>load(),200);});
     find("#results-list").addEventListener("click",(event)=>{const button=event.target.closest("[data-case]");if(button)onCase(button.dataset.case).catch((error)=>notify(error.message,true));});
     return {load};
   }

@@ -271,7 +271,7 @@ class HttpTests(unittest.TestCase):
             return response.status, parsed, response.headers
 
     def test_browser_assets_and_traversal_rejected(self):
-        for path in ("/", "/app.js", "/data.js", "/results.js", "/style.css"):
+        for path in ("/", "/app.js", "/data.js", "/results.js", "/reviews.js", "/audit.js", "/batches.js", "/style.css"):
             status, _, headers = self.request(path)
             self.assertEqual(status, 200)
             self.assertEqual(headers["X-Frame-Options"], "DENY")
@@ -290,7 +290,8 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(status, 200)
         row = next(row for row in detail["results"] if row["order_id"] == "O1003")
         status, _, _ = self.request(f"/api/batches/{batch}/review", {
-            "case_key":row["case_key"],"evidence_sha256":row["evidence_sha256"],"status":"resolved","note":"核实渠道少入账 2 元"})
+            "case_key":row["case_key"],"evidence_sha256":row["evidence_sha256"],"status":"resolved","note":"核实渠道少入账 2 元",
+            "run_id":detail["run"]["id"], "expected_revision":row["review_revision"]})
         self.assertEqual(status, 200)
         status, raw, headers = self.request(f"/api/batches/{batch}/export")
         self.assertEqual(status, 200)

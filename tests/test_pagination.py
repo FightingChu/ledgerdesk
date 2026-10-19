@@ -158,7 +158,8 @@ class PaginationTests(unittest.TestCase):
         with self.store.connect() as source, closing(sqlite3.connect(path)) as target:
             target.executescript((Path(__file__).parent / "fixtures/schema_v5.sql").read_text(encoding="utf-8"))
             for table in tables:
-                rows = source.execute("SELECT * FROM " + table + " ORDER BY rowid").fetchall()
+                columns = ",".join(row[1] for row in target.execute("PRAGMA table_info(" + table + ")"))
+                rows = source.execute("SELECT " + columns + " FROM " + table + " ORDER BY rowid").fetchall()
                 if rows:
                     target.executemany("INSERT INTO " + table + " VALUES(" + ",".join("?" for _ in rows[0]) + ")", [tuple(r) for r in rows])
             target.commit()

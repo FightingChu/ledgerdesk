@@ -54,6 +54,8 @@ def inspect_database(path):
             if version >= 6:
                 expected["result_lookup"] = {"run_id", "case_key", "position", "evidence_sha256", "search_text",
                                              "matched", "reason_tokens", "snapshot_status", "snapshot_note", "summary"}
+            if version >= 7:
+                expected["reviews"].add("revision")
             actual_tables = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             for table, columns in expected.items():
                 if table not in actual_tables or not columns.issubset({row[1] for row in con.execute("PRAGMA table_info(" + table + ")")}):

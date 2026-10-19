@@ -37,7 +37,7 @@ class DataManagementTests(unittest.TestCase):
         before = self.path.read_bytes()
         report = inspect_database(self.path)
         self.assertEqual(report["status"], "ok")
-        self.assertEqual(report["schema_version"], 6)
+        self.assertEqual(report["schema_version"], 7)
         self.assertEqual(report["counts"]["entries"], 15)
         self.assertEqual(self.path.read_bytes(), before)
         text = json.dumps(report, ensure_ascii=False)

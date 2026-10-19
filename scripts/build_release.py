@@ -27,6 +27,23 @@ RELEASE_FILES = (
     "tests/test_workflows.py", "tests/test_domain.py", "tests/test_config.py", "tests/test_data_management.py", "tests/test_pagination.py",
     "tests/fixtures/schema_v1.sql", "tests/fixtures/schema_v4.sql", "tests/fixtures/schema_v5.sql", "docs/PRODUCT.md", "docs/FEEDBACK_TEMPLATE.md",
     "docs/CHANGELOG.md", "docs/PROJECT_PLAN.md", "docs/ARCHITECTURE.md", "docs/DATA_MANAGEMENT.md", "docs/PAGINATION.md", ".github/workflows/test.yml",
+    "ledgerdesk/domain/reviews.py",
+    "ledgerdesk/application/batches.py",
+    "ledgerdesk/application/imports.py",
+    "ledgerdesk/application/reviews.py",
+    "ledgerdesk/persistence/batches.py",
+    "ledgerdesk/persistence/imports.py",
+    "ledgerdesk/persistence/reviews.py",
+    "ledgerdesk/persistence/audit.py",
+    "ledgerdesk/static/batches.js",
+    "ledgerdesk/static/reviews.js",
+    "ledgerdesk/static/audit.js",
+    "tests/test_bulk_reviews.py",
+    "tests/test_audit.py",
+    "tests/test_review_migration.py",
+    "tests/test_review_http.py",
+    "tests/fixtures/schema_v6.sql",
+    "docs/BULK_REVIEWS.md",
 )
 
 

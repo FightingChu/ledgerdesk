@@ -28,14 +28,8 @@ async function refreshList() {
   state.batches = (await api("/api/batches")).batches;
   renderBatches();
 }
-function renderBatches() {
-  const status=$("#batch-state").value,query=$("#batch-search").value.trim().toLowerCase();
-  const batches=state.batches.filter((batch)=>(status==="all"||!!batch.archived===(status==="archived"))&&`${batch.name} ${batch.description} ${batch.tags.join(" ")}`.toLowerCase().includes(query));
-  $("#batch-count").textContent = state.batches.length;
-  $("#list-count").textContent = batches.length;
-  $("#empty-batches").hidden = !!batches.length;
-  $("#batch-list").innerHTML = batches.map((batch) => `<tr data-batch="${batch.id}" tabindex="0" role="button" aria-label="打开 ${escapeHTML(batch.name)}"><td><div class="batch-name">${escapeHTML(batch.name)} ${batch.archived?'<span class="badge neutral">已归档</span>':""}</div><div class="batch-sub">${escapeHTML(batch.description || "独立核查批次")}</div><div class="reason-list">${batch.tags.map((tag)=>`<span class="badge neutral">${escapeHTML(tag)}</span>`).join("")}</div></td><td><span class="badge ${batch.is_sample ? "" : "neutral"}">${batch.is_sample ? "合成样例" : "用户导入"}</span></td><td>${batch.file_count} 份有效文件${batch.latest_summary?`<div class="batch-sub">${batch.latest_summary.groups} 组 · ${batch.latest_summary.issues} 项差异 · 差额 ${escapeHTML(batch.latest_summary.difference)}</div>`:""}</td><td>${timeLabel(batch.created_at)}</td><td>↗</td></tr>`).join("");
-}
+function renderBatches(){batchView.render();}
+
 function templateOptions(side) {
   return `<option value="">不使用模板</option>` + state.templates.filter((item)=>item.side===side)
     .map((item)=>`<option value="${item.id}">${escapeHTML(item.name)}</option>`).join("");
@@ -110,6 +104,7 @@ async function viewHistory(runId,page=1){
 function showHome() {
   if (state.busy) return;
   state.pageRevision++;
+  reviewView.invalidate();
   state.batch = null;
   $("#home-view").hidden = false; $("#detail-view").hidden = true;
   $("#breadcrumb").textContent = "核查批次";
@@ -117,6 +112,7 @@ function showHome() {
 }
 async function openBatch(id, reset = true) {
   const revision=++state.pageRevision;
+  reviewView.invalidate();
   const response=await api(`/api/batches/${id}/overview`);
   if (revision!==state.pageRevision) return;
   state.batch=response;
@@ -147,11 +143,10 @@ async function openBatch(id, reset = true) {
   $("#export-link").hidden = !data.run || data.stale;
   $("#export-link").href = `/api/batches/${id}/export?run_id=${encodeURIComponent(data.run?.id||"")}`;
   renderHistory(data);
-  const labels = {create_batch:"创建批次",import_file:"导入文件",reconcile:"执行核对",review:"更新处理记录",revoke_import:"撤销文件",replace_import:"替换文件",update_batch:"更新批次设置"};
-  $("#audit-list").innerHTML = data.audit.map((item) => { const payload=JSON.parse(item.payload); const description=item.action==="import_file"?`${payload.filename} · ${payload.rows} 行`:item.action==="review"?`${reviewLabels[payload.status]} · ${payload.note}`:item.action==="revoke_import"?`${payload.filename} · ${payload.reason}`:item.action==="replace_import"?`${payload.filename} → ${payload.replacement_filename} · ${payload.reason}`:""; return `<div class="audit-item"><time>${timeLabel(item.created_at)}</time><span>${labels[item.action] || item.action} ${escapeHTML(description)}</span></div>`; }).join("");
+  auditView.reset();
   await renderResults();
 }
-let resultView;
+let resultView,reviewView,auditView,batchView;
 function renderResults(){return resultView.load();}
 function startImport(side, replaceId=null) {
   if (state.busy || state.batch.batch.archived) return;
@@ -201,24 +196,8 @@ async function previewFile() {
   }
   $("#mapping-area").hidden=false; $("#confirm-import").disabled=!currency.valid;
 }
-async function openCase(key, historicalRun=null) {
-  if(state.busy||!state.batch)return;
-  const batchId=state.batch.batch.id,revision=state.pageRevision;
-  const url=historicalRun?`/api/batches/${batchId}/runs/${encodeURIComponent(historicalRun)}/cases/${key}`:`/api/batches/${batchId}/cases/${key}?run_id=${encodeURIComponent(state.batch.run?.id||"")}`;
-  const detail=await api(url);
-  if(!state.batch||state.pageRevision!==revision)return;
-  const row=detail.item;
-  state.currentCase=row;
-  $("#case-title").textContent=row.order_id+" / "+row.channel;
-  $("#case-summary").innerHTML=`<div class="reason-list">${row.reason_labels.map((label)=>`<span class="badge danger">${label}</span>`).join("")}</div><div class="case-overview"><div><label>预计净到账</label><strong>¥ ${row.expected}</strong></div><div><label>账单净额</label><strong>¥ ${row.actual}</strong></div><div><label>差额</label><strong>¥ ${row.difference}</strong></div></div>`;
-  $("#case-rows").innerHTML=row.rows.map((source)=>`<tr><td>${source.side==="orders"?"业务单":"支付账单"}<div class="channel">${escapeHTML(source.filename)}</div></td><td>${source.line}</td><td>${escapeHTML(source.transaction_id||"—")}</td><td>${{expected:"预计净额",sale:"收款",refund:"退款"}[source.kind]}</td><td class="number">${source.amount}</td></tr>`).join("");
-  $("#duplicate-evidence").hidden=!row.duplicate_rows?.length;
-  $("#duplicate-rows").innerHTML=(row.duplicate_rows||[]).map((source)=>`<tr><td>${escapeHTML(source.order_id)} / ${escapeHTML(source.channel)}</td><td>${escapeHTML(source.filename)} · 第 ${source.line} 行</td><td>${escapeHTML(source.transaction_id)}</td><td>${source.kind==="refund"?"退款":"收款"}</td><td class="number">${source.amount}</td></tr>`).join("");
-  const editable=!(row.reasons.length===1&&row.reasons[0]==="matched")&&!detail.stale&&!detail.read_only&&!state.batch.batch.archived;
-  $("#review-controls").hidden=!editable; $("#save-review").hidden=!editable;
-  $("#review-status").value=row.review_status; $("#review-note").value=row.note;
-  $("#case-dialog").showModal();
-}
+function openCase(key,historicalRun=null){return reviewView.openCase(key,historicalRun);}
+
 $("#new-batch").addEventListener("click",()=>{$("#batch-form").reset();$("#new-dialog").showModal();});
 $("#batch-form").addEventListener("submit",(event)=>{event.preventDefault();action(event.submitter,async()=>{const form=new FormData(event.target);const result=await api("/api/batches",{name:form.get("name"),description:form.get("description")});$("#new-dialog").close();await refreshList();await openBatch(result.batch_id);notify("批次已创建");});});
 $("#create-demo").addEventListener("click",(event)=>action(event.currentTarget,async()=>{const result=await api("/api/demo",{});await refreshList();await openBatch(result.batch_id);notify("合成样例批次已创建");}));
@@ -249,16 +228,15 @@ for (const id of ["#order-files","#payment-files"]) $(id).addEventListener("clic
   if(revoke){const file=state.batch.imports.find((item)=>item.id===revoke.dataset.revoke);state.revokeContext={batchId:state.batch.batch.id,importId:file.id};$("#revoke-form").reset();$("#revoke-errors").hidden=true;$("#revoke-description").textContent=`将撤销 ${file.filename}（${file.row_count} 行）。`;$("#revoke-dialog").showModal();}
 });
 $("#revoke-form").addEventListener("submit",(event)=>{event.preventDefault();const context={...state.revokeContext},reason=$("#revoke-reason").value;action(event.submitter,async()=>{try{await api(`/api/batches/${context.batchId}/revoke-import`,{import_id:context.importId,reason});$("#revoke-dialog").close();await openBatch(context.batchId,false);await refreshList();notify("文件已撤销，历史记录已保留，请重新核对");}catch(error){$("#revoke-errors").textContent=error.message;$("#revoke-errors").hidden=false;}});});
-$("#batch-state").addEventListener("change",renderBatches);
-$("#batch-search").addEventListener("input",renderBatches);
 $("#manage-templates").addEventListener("click",(event)=>action(event.currentTarget,async()=>{await refreshTemplates();renderTemplates();$("#template-errors").hidden=true;$("#templates-dialog").showModal();}));
 $("#templates-list").addEventListener("click",(event)=>{const copy=event.target.closest("[data-copy-template]"),remove=event.target.closest("[data-delete-template]");if(!copy&&!remove)return;action(event.target,async()=>{const id=copy?.dataset.copyTemplate||remove.dataset.deleteTemplate;if(copy){const name=$("#templates-list").querySelector(`[data-copy-name="${id}"]`).value;await api("/api/templates/copy",{id,name});}else await api("/api/templates/delete",{id});await refreshTemplates();renderTemplates();notify(copy?"模板副本已创建":"模板已删除，已有导入数据保留");});});
 $("#templates-file").addEventListener("change",(event)=>{const file=event.target.files[0];if(!file)return;action(null,async()=>{try{if(file.size>256*1024)throw new Error("模板文件不能超过 256 KiB");let bundle;try{bundle=JSON.parse(await file.text());}catch{throw new Error("模板文件必须是有效 JSON");}await api("/api/templates/import",{bundle});await refreshTemplates();renderTemplates();$("#template-errors").hidden=true;notify("模板文件已导入");}catch(error){$("#template-errors").textContent=error.message;$("#template-errors").hidden=false;}finally{event.target.value="";}});});
-$("#edit-batch").addEventListener("click",()=>{if(state.busy)return;$("#batch-tags").value=state.batch.batch.tags.join("，");$("#batch-archived").checked=!!state.batch.batch.archived;$("#batch-settings").showModal();});
-$("#batch-settings-form").addEventListener("submit",(event)=>{event.preventDefault();const id=state.batch.batch.id,tags=$("#batch-tags").value.split(/[,，]/).map((tag)=>tag.trim()).filter(Boolean),archived=$("#batch-archived").checked;action(event.submitter,async()=>{await api(`/api/batches/${id}/update`,{tags,archived});$("#batch-settings").close();await openBatch(id,false);await refreshList();notify(archived?"批次已归档":"批次设置已保存");});});
-$("#review-form").addEventListener("submit",(event)=>{event.preventDefault();action(event.submitter,async()=>{const row=state.currentCase;await api(`/api/batches/${state.batch.batch.id}/review`,{case_key:row.case_key,evidence_sha256:row.evidence_sha256,status:$("#review-status").value,note:$("#review-note").value});$("#case-dialog").close();await openBatch(state.batch.batch.id,false);notify("处理记录已保存");});});
+batchView=LedgerDeskBatches.initialize({api,action,notify,escapeHTML,timeLabel,state,onOpen:openBatch,onRefreshList:refreshList});
+reviewView=LedgerDeskReviews.initialize({api,action,notify,escapeHTML,reviewLabels,state,onRefresh:async()=>{if(state.batch)await openBatch(state.batch.batch.id,false);}});
+auditView=LedgerDeskAudit.initialize({api,notify,escapeHTML,timeLabel,reviewLabels,context:()=>state.batch?{batchId:state.batch.batch.id,revision:state.pageRevision}:null});
 resultView=LedgerDeskResults.initialize({api,notify,escapeHTML,reviewLabels,
   context:()=>state.batch?{batch:state.batch,revision:state.pageRevision,group:state.filter}:null,
+  onPage:reviewView.page,onInvalidate:reviewView.invalidate,selectionCell:reviewView.selectionCell,isBusy:()=>state.busy,
   onCase:openCase,onRefresh:async()=>{if(state.batch&&!state.busy)await openBatch(state.batch.batch.id,false);}});
 LedgerDeskData.initialize({api,action,timeLabel,escapeHTML,notify});
 api("/api/bootstrap").then(async(data)=>{state.token=data.token;state.templates=(await api("/api/templates")).templates;$("#app-version").textContent=`v${data.version}`;await refreshList();}).catch((error)=>notify("本地服务连接失败："+error.message,true));

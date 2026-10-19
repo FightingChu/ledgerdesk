@@ -23,6 +23,9 @@ jobs:
       - run: node --check ledgerdesk/static/app.js
       - run: node --check ledgerdesk/static/data.js
       - run: node --check ledgerdesk/static/results.js
+      - run: node --check ledgerdesk/static/reviews.js
+      - run: node --check ledgerdesk/static/audit.js
+      - run: node --check ledgerdesk/static/batches.js
       - run: python scripts/build_release.py
       - name: Verify extracted source distribution
         run: python scripts/verify_release.py
