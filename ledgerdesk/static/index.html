@@ -38,7 +38,7 @@
     <button class="nav-item" id="manage-templates">▤ 映射模板</button>
     <button class="nav-item" id="manage-data">▣ 数据管理</button>
     <div class="sidebar-description">从账单到差异，<br>每一笔都有据可查。</div>
-    <div class="sidebar-bottom"><span class="status-dot"></span> 数据保存在本机<small><span id="app-version"></span> · 本地候选版</small></div>
+    <div class="sidebar-bottom"><span class="status-dot"></span> 数据保存在本机<small><span id="app-version"></span> · 本地版</small></div>
   </aside>
   <div class="main-shell">
     <header class="topbar"><span>工作空间 <span class="slash">/</span> <span id="breadcrumb">核查批次</span></span><span class="local-pill"><span class="status-dot"></span>本地运行 · 人民币 CNY</span></header>
@@ -49,7 +49,7 @@
         <div class="section-title"><h2>核查批次 <span id="list-count" class="muted-count">0</span></h2><span class="muted">独立批次 · 源文件指纹 · 处理留痕</span></div>
         <div class="filter-toolbar"><label>批次状态<select id="batch-state"><option value="active">进行中</option><option value="archived">已归档</option><option value="all">全部批次</option></select></label><label>搜索批次<input type="search" id="batch-search" maxlength="128" placeholder="名称、说明或标签"></label></div>
         <div class="panel"><div class="table-scroll"><table class="batch-table"><thead><tr><th>批次名称</th><th>数据性质</th><th>已导入文件</th><th>创建时间</th><th></th></tr></thead><tbody id="batch-list"></tbody></table></div><div id="empty-batches" class="empty-state"><span class="empty-icon">▤</span><h3>还没有核查批次</h3><p>新建批次导入自己的文件，或先创建样例熟悉操作。</p></div></div>
-        <div class="product-note"><span>ⓘ</span><p>当前为本地候选版，。仅支持符合模板的标准 CSV；微信、支付宝原始账单需先转换。<br>本工具核对预计净到账与收款减退款，不含手续费、分账、汇兑和结算周期判断。</p></div>
+        <div class="product-note"><span>ⓘ</span><p>支持符合模板的标准 CSV；微信、支付宝原始账单需先转换。<br>本工具核对预计净到账与收款减退款，不含手续费、分账、汇兑和结算周期判断。</p></div>
       </section>
       <section id="detail-view" hidden>
         <button class="text-button back-button" id="back-home">← 全部批次</button>

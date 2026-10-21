@@ -15,7 +15,7 @@ def currency_error(columns, row):
     if len(normalized) > 1:
         return "同一行的多个币种列相互冲突"
     if normalized and normalized != {"CNY"}:
-        return "首版仅支持人民币 CNY / RMB / 人民币，请勿混入其他币种"
+        return "仅支持人民币 CNY / RMB / 人民币，请勿混入其他币种"
     return None
 
 

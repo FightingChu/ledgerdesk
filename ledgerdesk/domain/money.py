@@ -15,7 +15,7 @@ def cents(value):
     except (InvalidOperation, ValueError):
         raise InputError("金额无法解析") from None
     if amount > MAX_AMOUNT_CENTS:
-        raise InputError("单行金额超过首版上限 100 亿元")
+        raise InputError("单行金额超过上限 100 亿元")
     return amount
 
 

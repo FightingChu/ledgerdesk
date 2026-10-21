@@ -16,7 +16,7 @@ def generate(destination, groups):
             for index in range(groups):
                 key, channel = f"SYN{index:08}", "synthetic_" + str(index % 5)
                 writer.writerow([key, "1.01", channel] if side == "orders" else [key, "SYN-P" + str(index), "1.00", "sale", channel])
-    (destination / "README.txt").write_text("SYNTHETIC TEST DATA. No customer, merchant or channel compatibility claim.\n", encoding="utf-8")
+    (destination / "README.txt").write_text("Synthetic standard CSV test data.\n", encoding="utf-8")
     return {"groups": groups, "files": 2, "synthetic": True}
 
 

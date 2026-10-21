@@ -50,7 +50,7 @@ def read_csv(text):
                 raise InputError(f"第 {line} 行存在超过 2048 字符的字段")
             rows.append((line, dict(zip(headers, row))))
             if len(rows) > MAX_ROWS:
-                raise InputError("首版单文件最多 10000 行")
+                raise InputError("单文件最多 10000 行")
     except csv.Error as exc:
         raise InputError("CSV 格式错误：" + str(exc)) from None
     if not rows:

@@ -107,7 +107,7 @@ def main():
     except sqlite3.Error as exc:
         parser.exit(1, "Cannot open database: " + str(exc) + ". Check the data directory and backup.\n")
     url = f"http://127.0.0.1:{server.server_address[1]}"
-    print(f"LedgerDesk {__version__} | Personal validation build", flush=True)
+    print(f"LedgerDesk {__version__} | Local edition", flush=True)
     print("Open:", url, "| Data:", db, flush=True)
     print("Press Ctrl+C to stop. Data remains on this computer.", flush=True)
     if args.open:
